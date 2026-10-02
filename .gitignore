@@ -8,8 +8,8 @@ __pycache__/
 venv/
 .pytest_cache/
 
-# Runtime data (SQLite cache lives here)
-data/
+# Runtime data (SQLite cache lives here); leading / = only the top-level folder
+/data/
 
 # Editors / OS
 .vscode/
