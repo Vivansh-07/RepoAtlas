@@ -11,7 +11,8 @@ venv/
 # Runtime data (SQLite cache lives here); leading / = only the top-level folder
 /data/
 
-# Editors / OS
+# Editors / OS / local tooling
+.claude/
 .vscode/
 .idea/
 .DS_Store

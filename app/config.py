@@ -1,4 +1,13 @@
-"""Limits and timeouts in one place, so they're easy to find and tune."""
+"""Limits, timeouts and paths in one place, so they're easy to find and tune."""
+
+from pathlib import Path
+
+BASE_DIR = Path(__file__).resolve().parent.parent
+CACHE_DB_PATH = BASE_DIR / "data" / "cache.db"
+
+# Part of the cache key. Bump it whenever the analysis output changes, so results
+# cached by older code are ignored instead of served.
+ANALYSIS_VERSION = 1
 
 # git network calls
 LS_REMOTE_TIMEOUT_S = 15

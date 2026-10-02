@@ -84,7 +84,7 @@ def test_sample_cycle_is_marked(sample):
 def test_sample_pagerank(sample):
     graph, s = sample
     # utils is imported by models, payments and routes (and models is popular too)
-    assert [m["id"] for m in s.top_modules[:2]] == ["shop.utils", "shop.models"]
+    assert [m.id for m in s.top_modules[:2]] == ["shop.utils", "shop.models"]
     assert graph.nodes["shop.utils"]["pagerank_rank"] == 1
     internal_total = sum(pr for n, pr in graph.nodes(data="pagerank") if not graph.nodes[n]["is_external"])
     assert internal_total == pytest.approx(1.0)
@@ -142,4 +142,4 @@ def test_type_only_edges_are_ignored_by_analytics():
 def test_graph_without_edges():
     s = analyze(graph_of([], extra_nodes=["a", "b", "c"]))
     assert (s.num_edges, s.num_communities, s.modularity, s.num_cycles, s.dependency_depth) == (0, 0, 0.0, 0, 0)
-    assert [m["pagerank"] for m in s.top_modules] == pytest.approx([1 / 3] * 3)
+    assert [m.pagerank for m in s.top_modules] == pytest.approx([1 / 3] * 3)

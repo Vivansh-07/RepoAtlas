@@ -4,3 +4,4 @@ networkx==3.7
 numpy==2.5.3          # required by nx.pagerank
 scipy==1.18.1         # required by nx.pagerank
 pytest==9.1.1
+httpx==0.28.1         # tests only: FastAPI's TestClient

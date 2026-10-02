@@ -21,6 +21,12 @@ LOUVAIN_SEED = 42   # fixed seed -> same communities (and colours) every run
 
 
 @dataclass
+class TopModule:
+    id: str
+    pagerank: float
+
+
+@dataclass
 class Summary:
     num_nodes: int
     num_edges: int              # runtime imports between repo modules
@@ -33,7 +39,7 @@ class Summary:
     dependency_depth: int
     num_stdlib: int
     num_third_party: int
-    top_modules: list[dict] = field(default_factory=list)
+    top_modules: list[TopModule] = field(default_factory=list)
 
 
 def _largest_first(groups) -> list[set[str]]:
@@ -129,7 +135,7 @@ def analyze(graph: nx.DiGraph) -> Summary:
         dependency_depth=dependency_depth(internal),
         num_stdlib=kinds.count("stdlib"),
         num_third_party=kinds.count("third_party"),
-        top_modules=[{"id": n, "pagerank": pagerank[n]} for n in ranking[:TOP_N]],
+        top_modules=[TopModule(n, pagerank[n]) for n in ranking[:TOP_N]],
     )
 
 
@@ -157,7 +163,7 @@ if __name__ == "__main__":
     print(f"external: {s.num_stdlib} stdlib, {s.num_third_party} third-party\n")
     print("Most important modules (PageRank):")
     for i, top in enumerate(s.top_modules, 1):
-        print(f"  {i:>2}. {top['id']:<40} {top['pagerank']:.4f}")
+        print(f"  {i:>2}. {top.id:<40} {top.pagerank:.4f}")
 
     groups: dict[int, list[str]] = {}
     for node, scc in graph.nodes(data="scc_id"):
