@@ -1,5 +1,6 @@
 """Parser tests. Most use tests/fixtures/sample_repo, whose README lists what it contains."""
 
+import ast
 import os
 from pathlib import Path, PurePosixPath
 
@@ -8,7 +9,8 @@ import pytest
 from app import config
 from app.errors import NoPythonFiles, RepoTooLarge
 from app.parser import (
-    RawImport, count_loc, detect_source_roots, find_python_files, parse_repo, path_to_module,
+    RawImport, count_loc, detect_source_roots, extract_imports, find_python_files, parse_repo,
+    path_to_module,
 )
 
 SAMPLE = Path(__file__).parent / "fixtures" / "sample_repo"
@@ -150,6 +152,33 @@ def test_two_dot_and_star_imports(parsed):
 
 def test_function_level_import_is_found(parsed):
     assert RawImport("shop", ("utils",)) in parsed.modules["shop.payments"].imports
+
+
+def test_type_checking_imports_are_flagged():
+    source = (
+        "import typing as t\n"
+        "from typing import TYPE_CHECKING\n"
+        "if TYPE_CHECKING:\n"
+        "    import a\n"
+        "else:\n"
+        "    import b\n"              # the else branch does run
+        "if t.TYPE_CHECKING:\n"
+        "    from c import d\n"
+        "def f():\n"
+        "    import e\n"
+    )
+    assert extract_imports(ast.parse(source)) == [
+        RawImport("typing"),
+        RawImport("typing", ("TYPE_CHECKING",)),
+        RawImport("a", type_only=True),
+        RawImport("b"),
+        RawImport("c", ("d",), type_only=True),
+        RawImport("e"),
+    ]
+
+
+def test_sample_type_checking_import(parsed):
+    assert RawImport("shop.orders", ("Order",), type_only=True) in parsed.modules["shop.models"].imports
 
 
 def test_large_file_is_kept_but_not_parsed(tmp_path, monkeypatch):

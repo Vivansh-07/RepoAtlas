@@ -7,19 +7,21 @@ import networkx as nx
 import pytest
 
 from app.analytics import analyze, dependency_depth, detect_communities, find_cycles
-from app.graph_builder import build_graph, internal_subgraph
+from app.graph_builder import analysis_view, build_graph
 from app.parser import parse_repo
 from app.resolver import resolve_repo
 
 SAMPLE = Path(__file__).parent / "fixtures" / "sample_repo"
 
 
-def graph_of(edges, extra_nodes=()):
-    """Internal-only DiGraph with the node attributes analyze() expects."""
+def graph_of(edges, extra_nodes=(), type_only_edges=()):
+    """Internal-only DiGraph with the attributes analyze() expects."""
     g = nx.DiGraph()
-    for node in sorted({n for e in edges for n in e} | set(extra_nodes)):
+    nodes = {n for e in [*edges, *type_only_edges] for n in e} | set(extra_nodes)
+    for node in sorted(nodes):
         g.add_node(node, is_external=False, kind="internal")
-    g.add_edges_from(edges, weight=1)
+    g.add_edges_from(edges, weight=1, type_only=False)
+    g.add_edges_from(type_only_edges, weight=1, type_only=True)
     return g
 
 
@@ -35,8 +37,8 @@ def sample():
 def test_graph_has_internal_and_external_nodes(sample):
     graph, _ = sample
     external = {n for n, ext in graph.nodes(data="is_external") if ext}
-    assert external == {"json", "os", "re", "requests", "setuptools", "pytest"}
-    assert internal_subgraph(graph).number_of_nodes() == 10
+    assert external == {"json", "os", "re", "typing", "requests", "setuptools", "pytest"}
+    assert analysis_view(graph).number_of_nodes() == 10
 
 
 def test_node_attributes(sample):
@@ -57,10 +59,17 @@ def test_edges_point_from_importer_to_imported(sample):
 
 def test_sample_summary(sample):
     _, s = sample
-    assert (s.num_nodes, s.num_edges) == (10, 10)
+    assert (s.num_nodes, s.num_edges, s.num_type_only_edges) == (10, 10, 1)
     assert (s.num_cycles, s.largest_cycle_size) == (1, 2)
     assert s.dependency_depth == 3        # tests.test_orders -> {orders, payments} -> models -> utils
-    assert (s.num_stdlib, s.num_third_party) == (3, 3)
+    assert (s.num_stdlib, s.num_third_party) == (4, 3)
+
+
+def test_type_only_edge_does_not_join_the_cycle(sample):
+    graph, _ = sample
+    edge = graph.edges["shop.models", "shop.orders"]   # `if TYPE_CHECKING:` import
+    assert edge["type_only"] and not edge["in_cycle"]
+    assert not graph.nodes["shop.models"]["in_cycle"]
 
 
 def test_sample_cycle_is_marked(sample):
@@ -88,10 +97,12 @@ def test_external_nodes_get_neutral_analytics(sample):
     assert node["in_degree"] == 1          # used by shop.api.routes
 
 
-def test_degrees_count_internal_edges_only(sample):
+def test_degrees_count_internal_runtime_edges_only(sample):
     graph, _ = sample
     utils = graph.nodes["shop.utils"]      # imports only os and re (external)
     assert (utils["in_degree"], utils["out_degree"]) == (3, 0)
+    # payments, routes and tests import orders at runtime; models only type-only
+    assert graph.nodes["shop.orders"]["in_degree"] == 3
 
 
 def test_isolated_modules_have_no_community(sample):
@@ -120,6 +131,12 @@ def test_depth_of_a_chain_and_of_a_cycle():
 def test_cycles_largest_first():
     g = graph_of([("x", "y"), ("y", "x"), ("a", "b"), ("b", "c"), ("c", "a"), ("c", "z")])
     assert find_cycles(g) == [{"a", "b", "c"}, {"x", "y"}]
+
+
+def test_type_only_edges_are_ignored_by_analytics():
+    g = graph_of([("a", "b")], type_only_edges=[("b", "a")])
+    s = analyze(g)
+    assert (s.num_edges, s.num_type_only_edges, s.num_cycles) == (1, 1, 0)
 
 
 def test_graph_without_edges():

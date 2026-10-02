@@ -32,11 +32,21 @@ def build_graph(parsed: ParsedRepo, edges: list[Edge]) -> nx.DiGraph:
                 edge.target, label=edge.target, package="", path=None, loc=0,
                 kind=edge.kind, is_external=True, is_package=False, parse_error=None,
             )
-        graph.add_edge(edge.source, edge.target, weight=edge.weight, kind=edge.kind)
+        graph.add_edge(
+            edge.source, edge.target, weight=edge.weight, kind=edge.kind, type_only=edge.type_only
+        )
 
     return graph
 
 
-def internal_subgraph(graph: nx.DiGraph) -> nx.DiGraph:
-    """Only the repo's own modules. A read-only view, so nothing is copied."""
-    return graph.subgraph(n for n, external in graph.nodes(data="is_external") if not external)
+def analysis_view(graph: nx.DiGraph) -> nx.DiGraph:
+    """The graph every analytic runs on: the repo's own modules, joined only by
+    imports that actually run (no external libraries, no `if TYPE_CHECKING:` edges).
+
+    A read-only view that filters on the fly, so nothing is copied.
+    """
+    return nx.subgraph_view(
+        graph,
+        filter_node=lambda n: not graph.nodes[n]["is_external"],
+        filter_edge=lambda u, v: not graph.edges[u, v]["type_only"],
+    )

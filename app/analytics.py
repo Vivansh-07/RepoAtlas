@@ -1,8 +1,11 @@
 """Graph analytics: importance (PageRank), clusters (Louvain), cycles (SCCs), depth.
 
-Everything is computed on the *internal* subgraph only: external libraries like
-`typing` would otherwise top every importance ranking, and showing or hiding
-them must not change a module's size, colour or rank.
+Everything is computed on graph_builder.analysis_view: the repo's own modules
+joined by imports that actually run.
+- External libraries are left out: `typing` would top every importance ranking,
+  and showing or hiding them must not change a module's size, colour or rank.
+- `if TYPE_CHECKING:` imports are left out: they never execute, so they can't
+  cause a circular import (avoiding one is usually why they're written).
 """
 
 from __future__ import annotations
@@ -11,7 +14,7 @@ from dataclasses import dataclass, field
 
 import networkx as nx
 
-from app.graph_builder import internal_subgraph
+from app.graph_builder import analysis_view
 
 TOP_N = 10
 LOUVAIN_SEED = 42   # fixed seed -> same communities (and colours) every run
@@ -20,7 +23,8 @@ LOUVAIN_SEED = 42   # fixed seed -> same communities (and colours) every run
 @dataclass
 class Summary:
     num_nodes: int
-    num_edges: int
+    num_edges: int              # runtime imports between repo modules
+    num_type_only_edges: int    # `if TYPE_CHECKING:` imports between repo modules
     density: float
     num_communities: int
     modularity: float
@@ -80,7 +84,7 @@ def dependency_depth(internal: nx.DiGraph) -> int:
 
 def analyze(graph: nx.DiGraph) -> Summary:
     """Write analytics onto every node and edge of `graph`, and return a summary."""
-    internal = internal_subgraph(graph)
+    internal = analysis_view(graph)
     pagerank = compute_pagerank(internal)
     ranking = sorted(pagerank, key=lambda n: (-pagerank[n], n))
     communities, modularity = detect_communities(internal)
@@ -104,12 +108,19 @@ def analyze(graph: nx.DiGraph) -> Summary:
         )
 
     for source, target, data in graph.edges(data=True):
-        data["in_cycle"] = source in scc_of and scc_of[source] == scc_of.get(target)
+        # A type-only edge between two cycle members isn't part of the cycle.
+        data["in_cycle"] = (
+            not data["type_only"] and source in scc_of and scc_of[source] == scc_of.get(target)
+        )
 
     kinds = [kind for _, kind in graph.nodes(data="kind")]
     return Summary(
         num_nodes=internal.number_of_nodes(),
         num_edges=internal.number_of_edges(),
+        num_type_only_edges=sum(
+            1 for u, v, type_only in graph.edges(data="type_only")
+            if type_only and u in internal and v in internal
+        ),
         density=nx.density(internal),
         num_communities=len(communities),
         modularity=modularity,
@@ -138,7 +149,8 @@ if __name__ == "__main__":
     graph = build_graph(parsed, resolve_repo(parsed))
     s = analyze(graph)
 
-    print(f"{s.num_nodes} modules, {s.num_edges} edges, density {s.density:.3f}")
+    print(f"{s.num_nodes} modules, {s.num_edges} runtime edges "
+          f"(+{s.num_type_only_edges} type-only), density {s.density:.3f}")
     print(f"{s.num_communities} communities, modularity {s.modularity:.2f}")
     print(f"{s.num_cycles} cycle groups, largest has {s.largest_cycle_size} modules")
     print(f"dependency depth {s.dependency_depth}")

@@ -18,7 +18,10 @@ only ever *parsed*, never run.
 | `shop.api.routes` | `shop.models` | `from ..models import *` |
 | `tests.test_orders` | `shop.orders` | `from shop.orders import Order` |
 
-External: `json`, `os.path`, `re` (stdlib); `requests`, `setuptools`, `pytest` (third-party).
+Plus one **type-only** edge `shop.models → shop.orders` (`if TYPE_CHECKING:`). It must
+be ignored by analytics; counted, it would grow the cycle to `{models, orders, payments}`.
+
+External: `json`, `os.path`, `re`, `typing` (stdlib); `requests`, `setuptools`, `pytest` (third-party).
 
 ## Traps for the parser
 
@@ -26,3 +29,4 @@ External: `json`, `os.path`, `re` (stdlib); `requests`, `setuptools`, `pytest` (
 - `broken.py` is Python 2 syntax → kept as module `broken` with a parse error.
 - `scripts/my-tool/run.py` → `my-tool` isn't a valid name, so it's skipped.
 - `build/` and `.github/` → never scanned.
+- `shop/models.py` has an `if TYPE_CHECKING:` import → flagged `type_only`.

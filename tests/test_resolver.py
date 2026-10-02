@@ -24,7 +24,10 @@ def edges():
 
 def test_sample_repo_internal_edges(edges):
     # Exactly the table in tests/fixtures/sample_repo/README.md
-    assert {(e.source, e.target) for e in edges if e.kind == "internal"} == {
+    runtime = {(e.source, e.target) for e in edges if e.kind == "internal" and not e.type_only}
+    type_only = {(e.source, e.target) for e in edges if e.kind == "internal" and e.type_only}
+    assert type_only == {("shop.models", "shop.orders")}
+    assert runtime == {
         ("shop", "shop.models"),
         ("shop.models", "shop.utils"),
         ("shop.orders", "shop.payments"),
@@ -41,6 +44,7 @@ def test_sample_repo_internal_edges(edges):
 def test_sample_repo_external_edges(edges):
     assert {(e.source, e.target, e.kind) for e in edges if e.kind != "internal"} == {
         ("shop.models", "json", "stdlib"),
+        ("shop.models", "typing", "stdlib"),
         ("shop.utils", "os", "stdlib"),          # `import os.path` -> top-level `os`
         ("shop.utils", "re", "stdlib"),
         ("shop.api.routes", "requests", "third_party"),
@@ -108,6 +112,16 @@ def test_bare_neighbour_import_does_not_work_inside_a_package():
     # pkg is a package: Python 3 has no implicit relative imports, so this is a library
     internal = INTERNAL | {"pkg.helpers"}
     assert resolve_import(RawImport("helpers"), mod("pkg.sub"), internal) == {("helpers", "third_party")}
+
+
+def test_edge_is_type_only_only_if_every_import_is():
+    a = mod("a", imports=[
+        RawImport("b", type_only=True),
+        RawImport("c", type_only=True),
+        RawImport("c"),                 # one runtime import of c is enough
+    ])
+    parsed = ParsedRepo(modules={"a": a, "b": mod("b"), "c": mod("c")}, skipped={})
+    assert {e.target: e.type_only for e in resolve_repo(parsed)} == {"b": True, "c": False}
 
 
 def test_repeated_imports_add_up_to_weight():

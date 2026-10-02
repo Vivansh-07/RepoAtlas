@@ -36,6 +36,7 @@ class RawImport:
     module: str
     names: tuple[str, ...] = ()   # empty means a plain `import module`
     level: int = 0                # number of leading dots (0 = absolute import)
+    type_only: bool = False       # inside `if TYPE_CHECKING:`, so it never runs
 
 
 @dataclass
@@ -117,16 +118,38 @@ def path_to_module(rel_path: PurePosixPath) -> tuple[str, bool] | None:
     return ".".join(parts), is_package
 
 
+def _is_type_checking(test: ast.expr) -> bool:
+    """`if TYPE_CHECKING:`, `if typing.TYPE_CHECKING:` or `if t.TYPE_CHECKING:`"""
+    return (isinstance(test, ast.Name) and test.id == "TYPE_CHECKING") or (
+        isinstance(test, ast.Attribute) and test.attr == "TYPE_CHECKING"
+    )
+
+
 def extract_imports(tree: ast.AST) -> list[RawImport]:
-    # ast.walk visits every node, so imports inside functions, `if` and
-    # `try` blocks are included too. They're still real dependencies.
+    """Every import in the file, in source order, wherever it appears.
+
+    Imports inside functions, `try` and ordinary `if` blocks still run, so they
+    are real dependencies. Only the body of `if TYPE_CHECKING:` is flagged
+    type_only: TYPE_CHECKING is False at runtime, so those lines never execute.
+    """
     imports: list[RawImport] = []
-    for node in ast.walk(tree):
+
+    def visit(node: ast.AST, type_only: bool) -> None:
         if isinstance(node, ast.Import):
-            imports.extend(RawImport(alias.name) for alias in node.names)
+            imports.extend(RawImport(alias.name, type_only=type_only) for alias in node.names)
         elif isinstance(node, ast.ImportFrom):
             names = tuple(alias.name for alias in node.names)
-            imports.append(RawImport(node.module or "", names, node.level))
+            imports.append(RawImport(node.module or "", names, node.level, type_only))
+        elif isinstance(node, ast.If) and _is_type_checking(node.test):
+            for stmt in node.body:
+                visit(stmt, True)
+            for stmt in node.orelse:          # the `else:` branch does run
+                visit(stmt, type_only)
+        else:
+            for child in ast.iter_child_nodes(node):
+                visit(child, type_only)
+
+    visit(tree, False)
     return imports
 
 

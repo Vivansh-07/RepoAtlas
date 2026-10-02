@@ -36,6 +36,7 @@ class Edge:
     target: str     # a repo module, or an external top-level name ("os", "requests")
     kind: Kind
     weight: int     # number of import statements in `source` that lead to `target`
+    type_only: bool = False   # True only if *every* one of them is under `if TYPE_CHECKING:`
 
 
 def longest_internal_prefix(name: str, internal: Container[str]) -> str | None:
@@ -128,11 +129,18 @@ def resolve_repo(parsed: ParsedRepo) -> list[Edge]:
     """Every dependency edge in the repo, duplicates merged into `weight`."""
     internal = parsed.modules.keys()
     counts: Counter[tuple[str, str, Kind]] = Counter()
+    runs_at_runtime: set[tuple[str, str, Kind]] = set()
     for module in parsed.modules.values():
         for imp in module.imports:
             for target, kind in resolve_import(imp, module, internal):
-                counts[(module.name, target, kind)] += 1
-    return [Edge(src, dst, kind, weight) for (src, dst, kind), weight in sorted(counts.items())]
+                key = (module.name, target, kind)
+                counts[key] += 1
+                if not imp.type_only:
+                    runs_at_runtime.add(key)
+    return [
+        Edge(src, dst, kind, weight, type_only=(src, dst, kind) not in runs_at_runtime)
+        for (src, dst, kind), weight in sorted(counts.items())
+    ]
 
 
 if __name__ == "__main__":
@@ -150,7 +158,8 @@ if __name__ == "__main__":
     print(f"{len(parsed.modules)} modules, {len(internal_edges)} internal edges "
           f"(A -> B means A imports B)\n")
     for e in internal_edges:
-        print(f"  {e.source} -> {e.target}" + (f"   x{e.weight}" if e.weight > 1 else ""))
+        print(f"  {e.source} -> {e.target}" + (f"   x{e.weight}" if e.weight > 1 else "")
+              + ("   (type-only)" if e.type_only else ""))
     for kind in ("stdlib", "third_party"):
         names = sorted({e.target for e in edges if e.kind == kind})
         print(f"\n{kind} ({len(names)}): {', '.join(names)}")
