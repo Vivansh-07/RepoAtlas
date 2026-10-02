@@ -1,0 +1,4 @@
+fastapi==0.142.2
+uvicorn==0.54.0
+networkx==3.7
+pytest==9.1.1
