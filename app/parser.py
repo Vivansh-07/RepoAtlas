@@ -196,14 +196,10 @@ if __name__ == "__main__":
     #   python -m app.parser tests/fixtures/sample_repo
     #   python -m app.parser https://github.com/pallets/click
     import sys
-    from contextlib import nullcontext
 
-    from app.cloner import clone_repo, parse_repo_url
+    from app.cloner import open_repo
 
-    target = sys.argv[1]
-    source = clone_repo(parse_repo_url(target)) if target.startswith("https://") \
-        else nullcontext(Path(target))
-    with source as repo_path:
+    with open_repo(sys.argv[1]) as repo_path:
         parsed = parse_repo(repo_path)
 
     errors = [m for m in parsed.modules.values() if m.parse_error]

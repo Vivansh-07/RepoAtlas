@@ -114,6 +114,17 @@ def clone_repo(repo: RepoRef) -> Iterator[Path]:
         yield Path(tmp)
 
 
+@contextmanager
+def open_repo(target: str) -> Iterator[Path]:
+    """For the `python -m app.<module>` checks only: clone a GitHub URL, or use a
+    local folder as-is. The API never accepts local paths."""
+    if target.startswith("https://"):
+        with clone_repo(parse_repo_url(target)) as path:
+            yield path
+    else:
+        yield Path(target)
+
+
 if __name__ == "__main__":
     # Manual check:  python -m app.cloner https://github.com/pallets/click
     import sys

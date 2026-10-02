@@ -139,16 +139,10 @@ if __name__ == "__main__":
     # Day 1 check: print a repo's internal import edges.
     #   python -m app.resolver tests/fixtures/sample_repo
     #   python -m app.resolver https://github.com/pallets/click
-    from contextlib import nullcontext
-    from pathlib import Path
-
-    from app.cloner import clone_repo, parse_repo_url
+    from app.cloner import open_repo
     from app.parser import parse_repo
 
-    target = sys.argv[1]
-    source = clone_repo(parse_repo_url(target)) if target.startswith("https://") \
-        else nullcontext(Path(target))
-    with source as repo_path:
+    with open_repo(sys.argv[1]) as repo_path:
         parsed = parse_repo(repo_path)
     edges = resolve_repo(parsed)
 
