@@ -27,6 +27,7 @@ body {
   /* Two rows: the top bar takes the height it needs (auto), the workspace gets the rest (1fr). */
   display: grid;
   grid-template-rows: auto 1fr;
+  grid-template-columns: minmax(0, 1fr);   /* no child may make the page wider than the window */
   font-family: var(--font);
   font-size: 14px;
   color: var(--text);
@@ -64,6 +65,7 @@ body {
   border-radius: var(--radius);
   background: transparent;
   color: var(--muted);
+  white-space: nowrap;           /* keep "Repo Explorer" on one line */
   cursor: pointer;
 }
 .tab.is-active { background: var(--accent-tint); color: var(--accent-hover); font-weight: 500; }
@@ -146,7 +148,10 @@ input[type="url"]:focus {
 .canvas {
   position: relative;            /* children with position:absolute are placed relative to this */
   min-width: 0;
-  background: var(--panel);
+  /* A faint dot grid, like map paper: one 1px dot repeated every 22px. */
+  background-color: var(--panel);
+  background-image: radial-gradient(var(--border) 1px, transparent 1px);
+  background-size: 22px 22px;
   border-inline: 1px solid var(--border);
 }
 /* Cytoscape needs a container with a real size: fill the whole canvas. */
@@ -184,14 +189,154 @@ input[type="url"]:focus {
 
 .top-list { display: flex; flex-direction: column; gap: 10px; margin: 0; padding: 0; list-style: none; }
 .top-row { display: flex; justify-content: space-between; gap: 8px; font-size: 13px; }
-.top-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+/* min-width: 0 lets this flex item shrink below its text width, so the ellipsis (…) can kick in */
+.top-name { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .top-score { color: var(--muted); font-variant-numeric: tabular-nums; }
 .top-bar { height: 4px; margin-top: 4px; background: var(--accent-tint); border-radius: 2px; }
 .top-bar > span { display: block; height: 100%; background: var(--accent); border-radius: 2px; }
 
+.top-list li { cursor: pointer; border-radius: 6px; }
+.top-list li:hover .top-name { color: var(--accent); }
+
+.hint { margin: 10px 0 0; font-size: 12px; line-height: 1.5; color: var(--muted); }
+code { font-family: ui-monospace, "Cascadia Code", Consolas, monospace; font-size: 0.92em; }
+
+/* ---------- Layout switcher: a row of joined buttons ---------- */
+.segmented {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);   /* four equal columns */
+  padding: 3px;
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+}
+.segmented button {
+  padding: 6px 0;
+  font: inherit;
+  font-size: 12px;
+  color: var(--muted);
+  background: transparent;
+  border: 0;
+  border-radius: 6px;
+  cursor: pointer;
+}
+.segmented button:hover { color: var(--text); }
+.segmented button.is-active { color: var(--accent-hover); background: var(--panel); font-weight: 500;
+                              box-shadow: 0 1px 2px rgb(15 23 42 / 0.08); }
+
+/* ---------- Floating tools on the graph ---------- */
+.canvas-tools { position: absolute; top: 12px; right: 12px; display: flex; gap: 6px; }
+.canvas-tools button {
+  padding: 5px 12px;
+  font: inherit;
+  font-size: 12px;
+  color: var(--text);
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  cursor: pointer;
+}
+.canvas-tools button:hover { border-color: var(--accent); color: var(--accent); }
+
+/* ---------- Loading overlay ---------- */
+.loading {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: rgb(248 250 252 / 0.8);      /* --bg, 80% opaque: the old graph shows faintly behind */
+}
+.loading[hidden] { display: none; }
+.loading-card {
+  min-width: 280px;
+  padding: 24px 28px;
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  box-shadow: 0 8px 24px rgb(15 23 42 / 0.08);
+}
+.spinner {
+  width: 28px;
+  height: 28px;
+  border: 3px solid var(--accent-tint);
+  border-top-color: var(--accent);          /* one coloured quarter... */
+  border-radius: 50%;
+  animation: spin 0.8s linear infinite;     /* ...spinning forever */
+}
+@keyframes spin { to { transform: rotate(360deg); } }
+.loading-title { margin: 14px 0 10px; font-weight: 600; }
+.loading-steps { display: flex; flex-direction: column; gap: 6px; margin: 0; padding: 0; list-style: none; font-size: 13px; color: var(--muted); }
+.loading-steps li::before { content: "○"; display: inline-block; width: 18px; }
+.loading-steps li.is-active { color: var(--text); font-weight: 500; }
+.loading-steps li.is-active::before { content: "◐"; color: var(--accent); }
+.loading-steps li.is-done::before { content: "✓"; color: #059669; }
+
+/* ---------- Module details card ---------- */
+.details[hidden] { display: none; }
+.details-header { display: flex; align-items: flex-start; gap: 10px; }
+.details-header .dot { flex: none; width: 12px; height: 12px; margin-top: 4px; border-radius: 50%; }
+.details-title { flex: 1; min-width: 0; }
+.details-title h2 { margin: 0; font-size: 16px; font-weight: 600; overflow-wrap: anywhere; }
+.details-title p { margin: 2px 0 0; font-size: 12px; color: var(--muted); overflow-wrap: anywhere; }
+.icon-button {
+  flex: none;
+  width: 26px;
+  height: 26px;
+  font-size: 16px;
+  line-height: 1;
+  color: var(--muted);
+  background: transparent;
+  border: 0;
+  border-radius: 6px;
+  cursor: pointer;
+}
+.icon-button:hover { color: var(--text); background: var(--bg); }
+.badge { display: inline-block; margin-top: 8px; padding: 2px 8px; font-size: 12px; font-weight: 500; border-radius: 999px; }
+.badge-cycle { color: #be123c; background: #fff1f2; }
+.badge-warn { color: #92400e; background: #fef3c7; }
+
+.facts { display: grid; grid-template-columns: auto 1fr; gap: 6px 12px; margin: 14px 0 0; font-size: 13px; }
+.facts dt { color: var(--muted); }
+.facts dd { margin: 0; overflow-wrap: anywhere; }
+
+.neighbors-title { margin: 16px 0 6px; font-size: 12px; font-weight: 600; color: var(--muted); }
+.neighbor-list { max-height: 168px; overflow-y: auto; margin: 0; padding: 0; list-style: none; }
+.neighbor-list button {
+  display: flex;
+  justify-content: space-between;
+  gap: 8px;
+  width: 100%;
+  padding: 5px 8px;
+  font: inherit;
+  font-size: 13px;
+  text-align: left;
+  color: var(--text);
+  background: transparent;
+  border: 0;
+  border-radius: 6px;
+  cursor: pointer;
+}
+.neighbor-list button span:first-child { min-width: 0; overflow-wrap: anywhere; }
+.neighbor-list button:hover { background: var(--accent-tint); color: var(--accent-hover); }
+.neighbor-list .tag { flex: none; font-size: 11px; color: var(--muted); }
+.neighbor-list .empty { padding: 5px 8px; font-size: 13px; color: var(--muted); }
+
+/* ---------- Legend ---------- */
+.legend { display: flex; flex-direction: column; gap: 8px; margin: 0; padding: 0; list-style: none; font-size: 13px; }
+.legend li { display: flex; align-items: center; gap: 10px; }
+.legend svg { flex: none; width: 40px; height: 20px; }
+.legend b { font-weight: 600; }
+
 /* ---------- Narrow screens: one column, graph first ---------- */
 @media (max-width: 900px) {
   html, body { height: auto; }
-  .workspace { grid-template-columns: 1fr; }
+  .topbar { gap: 16px; padding: 0 14px; }
+  .brand { flex: none; }
+  .tabs { min-width: 0; overflow-x: auto; scrollbar-width: none; }   /* scroll sideways (no visible bar) instead of widening the page */
+  .tab { padding: 6px 10px; }
+  /* minmax(0, 1fr), not 1fr: a long unbreakable module name must not be able
+     to stretch the column (and the whole page) wider than the screen. */
+  .workspace { grid-template-columns: minmax(0, 1fr); }
   .canvas { order: -1; height: 65vh; border-inline: 0; border-block: 1px solid var(--border); }
 }

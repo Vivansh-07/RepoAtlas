@@ -73,6 +73,18 @@
           <button class="chip" type="button" data-repo="https://github.com/encode/httpx">encode/httpx</button>
         </div>
       </div>
+
+      <div class="card">
+        <p class="field-label">Layout</p>
+        <!-- data-layout names the Cytoscape layout each button runs (see LAYOUTS in app.js) -->
+        <div class="segmented" role="group" aria-label="Graph layout">
+          <button type="button" class="is-active" data-layout="force">Force</button>
+          <button type="button" data-layout="hierarchy">Hierarchy</button>
+          <button type="button" data-layout="rings">Rings</button>
+          <button type="button" data-layout="circle">Circle</button>
+        </div>
+        <p id="layout-hint" class="hint">Connected modules pull together; clusters emerge.</p>
+      </div>
     </aside>
 
     <section class="canvas" aria-label="Dependency graph">
@@ -91,9 +103,26 @@
         <p>Paste a public GitHub URL to see how its modules depend on each other:
            the most important ones, the clusters they form, and any circular imports.</p>
       </div>
+
+      <!-- Floating buttons in the corner of the graph -->
+      <div class="canvas-tools">
+        <button id="fit-button" type="button" title="Fit the whole graph on screen">Fit</button>
+      </div>
+
+      <!-- Covers the graph while an analysis runs -->
+      <div id="loading" class="loading" hidden>
+        <div class="loading-card">
+          <div class="spinner" aria-hidden="true"></div>
+          <p id="loading-title" class="loading-title">Analysing…</p>
+          <ol id="loading-steps" class="loading-steps"></ol>
+        </div>
+      </div>
     </section>
 
     <aside class="panel" aria-label="Summary">
+      <!-- Details of the clicked module; app.js fills it in and un-hides it -->
+      <div id="details" class="card details" hidden></div>
+
       <div class="card">
         <h2 class="card-title">Summary</h2>
         <!-- <dl> = description list: pairs of a term (<dt>) and its value (<dd>).
@@ -112,6 +141,37 @@
         <ol id="top-modules" class="top-list">
           <li class="muted">Run an analysis to see them.</li>
         </ol>
+      </div>
+
+      <div class="card">
+        <h2 class="card-title">How to read the map</h2>
+        <ul class="legend">
+          <li>
+            <svg viewBox="0 0 40 20" aria-hidden="true"><circle cx="8" cy="10" r="4" fill="#7c3aed"/><circle cx="26" cy="10" r="8" fill="#7c3aed"/></svg>
+            <span><b>Size</b>: importance (PageRank)</span>
+          </li>
+          <li>
+            <svg viewBox="0 0 40 20" aria-hidden="true"><circle cx="7" cy="10" r="5" fill="#7c3aed"/><circle cx="20" cy="10" r="5" fill="#0891b2"/><circle cx="33" cy="10" r="5" fill="#f59e0b"/></svg>
+            <span><b>Colour</b>: community (Louvain cluster)</span>
+          </li>
+          <li>
+            <svg viewBox="0 0 40 20" aria-hidden="true"><circle cx="20" cy="10" r="5" fill="#cbd5e1"/></svg>
+            <span><b>Grey</b>: no imports to or from other modules</span>
+          </li>
+          <li>
+            <svg viewBox="0 0 40 20" aria-hidden="true"><circle cx="20" cy="10" r="9" fill="#e11d48" opacity="0.2"/><circle cx="20" cy="10" r="5.5" fill="#0891b2" stroke="#e11d48" stroke-width="2"/></svg>
+            <span><b>Red</b>: circular dependency</span>
+          </li>
+          <li>
+            <svg viewBox="0 0 40 20" aria-hidden="true"><line x1="3" y1="10" x2="31" y2="10" stroke="#94a3b8" stroke-width="2"/><path d="M30 6 L37 10 L30 14 Z" fill="#94a3b8"/></svg>
+            <span><b>A → B</b>: A imports B</span>
+          </li>
+          <li>
+            <svg viewBox="0 0 40 20" aria-hidden="true"><line x1="3" y1="10" x2="31" y2="10" stroke="#94a3b8" stroke-width="2" stroke-dasharray="4 3"/><path d="M30 6 L37 10 L30 14 Z" fill="#94a3b8"/></svg>
+            <span><b>Dashed</b>: type-only import (<code>if TYPE_CHECKING</code>)</span>
+          </li>
+        </ul>
+        <p class="hint">Hover a module to focus on its neighbours. Click it for details.</p>
       </div>
     </aside>
 
