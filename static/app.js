@@ -51,6 +51,7 @@ const LANDMARK_COUNT = 8;
 // `let` because these change as the user works.
 let cy = null;              // the Cytoscape graph
 let summary = null;         // summary of the last analysis
+let currentRepo = null;     // "owner/name" of the graph on screen
 let selected = null;        // the clicked node, or null
 let currentLayout = "force";
 let runningLayout = null;   // so a new layout can stop one still animating
@@ -97,7 +98,9 @@ async function analyze(repoUrl) {
   try {
     const data = await fetchAnalysis(repoUrl);
     summary = data.summary;
+    currentRepo = data.repo;
     drawGraph(data);
+    updateAddressBar();
     showSummary(data.summary);
     const source = data.cached ? "from cache" : "freshly analysed";
     showStatus(`${data.repo} @ ${data.commit_sha.slice(0, 7)} · ${source}`);
@@ -300,10 +303,13 @@ const LAYOUTS = {
   },
   circle: {
     hint: "One circle, ordered by community, to compare the size of each cluster.",
+    // We hand the layout the nodes already sorted by community instead of using
+    // its `sort` option: in Cytoscape 3.34.3 the circle layout sorts, but then
+    // assigns positions in the original order, so `sort` has no effect.
     // `??` means "use the right side if the left is null": isolated modules go last.
     options: () => ({
       name: "circle",
-      sort: (a, b) => (a.data("community") ?? 999) - (b.data("community") ?? 999),
+      eles: cy.nodes().sort((a, b) => (a.data("community") ?? 999) - (b.data("community") ?? 999)),
     }),
   },
 };
@@ -383,6 +389,7 @@ function runLayout(name) {
   layoutButtons.forEach((button) => button.classList.toggle("is-active", button.dataset.layout === name));
   layoutHint.textContent = LAYOUTS[name].hint;
   if (!cy) return;
+  updateAddressBar();
 
   if (runningLayout) runningLayout.stop();   // don't let two layouts fight over positions
   // {...a, b: 1} copies every field of a, then adds/overrides b.
@@ -658,4 +665,26 @@ function setBusy(busy) {
 function showStatus(message, isError = false) {
   statusText.textContent = message;
   statusText.classList.toggle("is-error", isError);
+}
+
+
+// ============================================================
+// 12. Shareable links: /?repo=pallets/flask&layout=hierarchy
+// ============================================================
+// Keep the address bar in sync with what's on screen, so it can be copied and
+// shared. replaceState changes the URL without reloading the page.
+// (currentRepo comes from the server, which only accepts [A-Za-z0-9_.-] names.)
+function updateAddressBar() {
+  if (currentRepo) history.replaceState(null, "", `?repo=${currentRepo}&layout=${currentLayout}`);
+}
+
+// On page load, open whatever the link asks for. URLSearchParams reads the
+// "?key=value&..." part of the address. This runs last in the file because it
+// uses LAYOUTS and the functions defined above.
+const linkParams = new URLSearchParams(window.location.search);
+if (linkParams.get("layout") in LAYOUTS) runLayout(linkParams.get("layout"));
+if (linkParams.get("repo")) {
+  const repo = linkParams.get("repo");
+  urlInput.value = repo.startsWith("https://") ? repo : `https://github.com/${repo}`;
+  form.requestSubmit();
 }
