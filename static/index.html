@@ -1,0 +1,100 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <!-- Makes phones use the real screen width instead of zooming out a desktop page -->
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>RepoAtlas · map a Python codebase</title>
+
+  <!-- Inter font from Google Fonts. "preconnect" opens the connection early so the font arrives sooner. -->
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&display=swap">
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <!-- ===== Top bar: logo + tabs ===== -->
+  <header class="topbar">
+    <a class="brand" href="/">
+      <!-- Logo: three connected nodes, drawn inline so it needs no image file -->
+      <svg class="brand-mark" viewBox="0 0 24 24" aria-hidden="true">
+        <line x1="6" y1="7" x2="18" y2="6"/><line x1="6" y1="7" x2="11" y2="18"/><line x1="18" y1="6" x2="11" y2="18"/>
+        <circle cx="6" cy="7" r="3"/><circle cx="18" cy="6" r="2.5"/><circle cx="11" cy="18" r="3.5"/>
+      </svg>
+      RepoAtlas
+    </a>
+    <nav class="tabs" aria-label="Views">
+      <button class="tab is-active" type="button">Repo Explorer</button>
+      <button class="tab" type="button" disabled title="Coming soon">Graph Lab</button>
+    </nav>
+  </header>
+
+  <!-- ===== Three columns: controls | graph | summary ===== -->
+  <main class="workspace">
+
+    <aside class="panel" aria-label="Controls">
+      <!-- A real <form>: pressing Enter in the box submits it, for free -->
+      <form id="analyze-form" class="card">
+        <label class="field-label" for="repo-url">GitHub repository</label>
+        <input id="repo-url" type="url" required autocomplete="off"
+               placeholder="https://github.com/pallets/click">
+        <button id="analyze-button" class="button-primary" type="submit">Analyze</button>
+        <!-- role="status": screen readers announce changes to this text -->
+        <p id="status" class="status" role="status"></p>
+      </form>
+
+      <div class="card">
+        <p class="field-label">Try one</p>
+        <!-- data-repo is a custom attribute; app.js reads it when a chip is clicked -->
+        <div class="examples">
+          <button class="chip" type="button" data-repo="https://github.com/pallets/click">pallets/click</button>
+          <button class="chip" type="button" data-repo="https://github.com/pallets/flask">pallets/flask</button>
+          <button class="chip" type="button" data-repo="https://github.com/psf/requests">psf/requests</button>
+          <button class="chip" type="button" data-repo="https://github.com/encode/httpx">encode/httpx</button>
+        </div>
+      </div>
+    </aside>
+
+    <section class="canvas" aria-label="Dependency graph">
+      <!-- Cytoscape draws the graph inside this empty div -->
+      <div id="graph"></div>
+      <!-- Shown until the first graph appears -->
+      <div id="empty-state" class="empty-state">
+        <svg class="empty-icon" viewBox="0 0 64 64" aria-hidden="true">
+          <line x1="16" y1="20" x2="44" y2="14"/><line x1="16" y1="20" x2="28" y2="46"/>
+          <line x1="44" y1="14" x2="28" y2="46"/><line x1="44" y1="14" x2="52" y2="40"/>
+          <line x1="28" y1="46" x2="52" y2="40"/>
+          <circle cx="16" cy="20" r="6" class="c1"/><circle cx="44" cy="14" r="8" class="c2"/>
+          <circle cx="28" cy="46" r="9" class="c1"/><circle cx="52" cy="40" r="5" class="c3"/>
+        </svg>
+        <h1>Map any Python repository</h1>
+        <p>Paste a public GitHub URL to see how its modules depend on each other:
+           the most important ones, the clusters they form, and any circular imports.</p>
+      </div>
+    </section>
+
+    <aside class="panel" aria-label="Summary">
+      <div class="card">
+        <h2 class="card-title">Summary</h2>
+        <!-- <dl> = description list: pairs of a term (<dt>) and its value (<dd>).
+             data-stat names the summary field from the API that fills each value. -->
+        <dl class="stats">
+          <div class="stat"><dt>Modules</dt><dd data-stat="num_nodes">–</dd></div>
+          <div class="stat"><dt>Imports</dt><dd data-stat="num_edges">–</dd></div>
+          <div class="stat"><dt>Communities</dt><dd data-stat="num_communities">–</dd></div>
+          <div class="stat" id="cycles-stat"><dt>Cycle groups</dt><dd data-stat="num_cycles">–</dd></div>
+          <div class="stat"><dt>Dependency depth</dt><dd data-stat="dependency_depth">–</dd></div>
+          <div class="stat"><dt>Modularity</dt><dd data-stat="modularity">–</dd></div>
+        </dl>
+      </div>
+      <div class="card">
+        <h2 class="card-title">Most important modules</h2>
+        <ol id="top-modules" class="top-list">
+          <li class="muted">Run an analysis to see them.</li>
+        </ol>
+      </div>
+    </aside>
+
+  </main>
+</body>
+</html>

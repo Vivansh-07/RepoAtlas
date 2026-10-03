@@ -51,6 +51,17 @@ def test_health(client):
     assert client.get("/api/health").json() == {"status": "ok"}
 
 
+def test_frontend_is_served_at_root(client):
+    resp = client.get("/")
+    assert resp.status_code == 200
+    assert resp.headers["content-type"].startswith("text/html")
+    assert "RepoAtlas" in resp.text
+    assert client.get("/style.css").status_code == 200
+    # The catch-all static mount must not swallow the API or the docs
+    assert client.get("/api/health").status_code == 200
+    assert client.get("/docs").status_code == 200
+
+
 def test_analyze_returns_a_cytoscape_graph(client, clones):
     resp = analyze(client)
     assert resp.status_code == 200

@@ -1,0 +1,197 @@
+/* ============================================================
+   Design tokens: every colour lives here once, as a CSS variable.
+   Elsewhere we write var(--accent) instead of repeating #6d28d9,
+   so changing the theme means editing only this block.
+   ============================================================ */
+:root {
+  --bg: #f8fafc;            /* page background */
+  --panel: #ffffff;         /* cards, top bar, graph area */
+  --border: #e2e8f0;
+  --border-input: #cbd5e1;
+  --text: #0f172a;
+  --muted: #64748b;
+  --accent: #6d28d9;
+  --accent-hover: #5b21b6;
+  --accent-tint: #ede9fe;
+  --danger: #e11d48;        /* only ever means "circular dependency" or an error */
+  --radius: 8px;
+  --font: "Inter", system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+}
+
+/* Include padding and border in an element's width, which makes sizes predictable. */
+*, *::before, *::after { box-sizing: border-box; }
+
+html, body { height: 100%; margin: 0; }
+
+body {
+  /* Two rows: the top bar takes the height it needs (auto), the workspace gets the rest (1fr). */
+  display: grid;
+  grid-template-rows: auto 1fr;
+  font-family: var(--font);
+  font-size: 14px;
+  color: var(--text);
+  background: var(--bg);
+}
+
+/* ---------- Top bar ---------- */
+.topbar {
+  display: flex;                 /* lay children out in a row */
+  align-items: center;
+  gap: 32px;
+  height: 56px;
+  padding: 0 20px;
+  background: var(--panel);
+  border-bottom: 1px solid var(--border);
+}
+.brand {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  font-size: 17px;
+  font-weight: 600;
+  color: var(--text);
+  text-decoration: none;
+}
+.brand-mark { width: 24px; height: 24px; }
+.brand-mark line { stroke: var(--accent); stroke-width: 1.5; opacity: 0.45; }
+.brand-mark circle { fill: var(--accent); }
+
+.tabs { display: flex; gap: 4px; }
+.tab {
+  font: inherit;                 /* buttons don't inherit the page font by default */
+  padding: 6px 14px;
+  border: 0;
+  border-radius: var(--radius);
+  background: transparent;
+  color: var(--muted);
+  cursor: pointer;
+}
+.tab.is-active { background: var(--accent-tint); color: var(--accent-hover); font-weight: 500; }
+.tab:disabled { cursor: not-allowed; opacity: 0.55; }
+
+/* ---------- Three-column workspace ---------- */
+.workspace {
+  display: grid;
+  /* fixed-width side panels; the graph takes the rest. minmax(0, 1fr) lets it
+     shrink below its content's natural width instead of overflowing. */
+  grid-template-columns: 300px minmax(0, 1fr) 300px;
+  min-height: 0;                 /* let this grid row fit the window instead of growing */
+}
+.panel {
+  display: flex;
+  flex-direction: column;        /* stack the cards vertically */
+  gap: 16px;
+  padding: 16px;
+  overflow-y: auto;              /* the panel scrolls, not the whole page */
+}
+.card {
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  padding: 16px;
+}
+.card-title { margin: 0 0 12px; font-size: 13px; font-weight: 600; }
+.field-label { display: block; margin: 0 0 8px; font-size: 12px; font-weight: 500; color: var(--muted); }
+.muted { color: var(--muted); font-size: 13px; }
+
+/* ---------- Form controls ---------- */
+input[type="url"] {
+  width: 100%;
+  padding: 9px 12px;
+  font: inherit;
+  color: var(--text);
+  background: #fff;
+  border: 1px solid var(--border-input);
+  border-radius: var(--radius);
+}
+input[type="url"]:focus {
+  outline: none;
+  border-color: var(--accent);
+  box-shadow: 0 0 0 3px var(--accent-tint);   /* soft focus ring */
+}
+.button-primary {
+  width: 100%;
+  margin-top: 10px;
+  padding: 9px 12px;
+  font: inherit;
+  font-weight: 500;
+  color: #fff;
+  background: var(--accent);
+  border: 0;
+  border-radius: var(--radius);
+  cursor: pointer;
+  transition: background 0.15s;  /* fade the hover colour instead of snapping */
+}
+.button-primary:hover { background: var(--accent-hover); }
+.button-primary:disabled { opacity: 0.65; cursor: progress; }
+
+.status { margin: 10px 0 0; font-size: 13px; line-height: 1.5; color: var(--muted); }
+.status:empty { display: none; }
+.status.is-error { color: var(--danger); }
+
+.examples { display: flex; flex-wrap: wrap; gap: 8px; }
+.chip {
+  padding: 5px 10px;
+  font: inherit;
+  font-size: 13px;
+  color: var(--text);
+  background: #fff;
+  border: 1px solid var(--border);
+  border-radius: 999px;          /* fully rounded "pill" */
+  cursor: pointer;
+}
+.chip:hover { border-color: var(--accent); color: var(--accent); }
+
+/* ---------- Graph area ---------- */
+.canvas {
+  position: relative;            /* children with position:absolute are placed relative to this */
+  min-width: 0;
+  background: var(--panel);
+  border-inline: 1px solid var(--border);
+}
+/* Cytoscape needs a container with a real size: fill the whole canvas. */
+#graph { position: absolute; inset: 0; }
+
+.empty-state {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  padding: 32px;
+  text-align: center;
+  color: var(--muted);
+  pointer-events: none;          /* clicks pass through to the graph underneath */
+}
+/* The `hidden` attribute normally means display:none, but our display:flex above
+   would override it. This rule restores it. (A classic CSS gotcha.) */
+.empty-state[hidden] { display: none; }
+.empty-state h1 { margin: 16px 0 8px; font-size: 20px; font-weight: 600; color: var(--text); }
+.empty-state p { max-width: 420px; margin: 0; line-height: 1.6; }
+.empty-icon { width: 96px; height: 96px; }
+.empty-icon line { stroke: var(--border-input); stroke-width: 2; }
+.empty-icon .c1 { fill: #7c3aed; }
+.empty-icon .c2 { fill: #0891b2; }
+.empty-icon .c3 { fill: #f59e0b; }
+
+/* ---------- Summary ---------- */
+.stats { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin: 0; }
+.stat { padding: 10px 12px; background: var(--bg); border-radius: var(--radius); }
+.stat dt { font-size: 12px; color: var(--muted); }
+.stat dd { margin: 2px 0 0; font-size: 20px; font-weight: 600; }
+.stat.is-alert dd { color: var(--danger); }
+
+.top-list { display: flex; flex-direction: column; gap: 10px; margin: 0; padding: 0; list-style: none; }
+.top-row { display: flex; justify-content: space-between; gap: 8px; font-size: 13px; }
+.top-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.top-score { color: var(--muted); font-variant-numeric: tabular-nums; }
+.top-bar { height: 4px; margin-top: 4px; background: var(--accent-tint); border-radius: 2px; }
+.top-bar > span { display: block; height: 100%; background: var(--accent); border-radius: 2px; }
+
+/* ---------- Narrow screens: one column, graph first ---------- */
+@media (max-width: 900px) {
+  html, body { height: auto; }
+  .workspace { grid-template-columns: 1fr; }
+  .canvas { order: -1; height: 65vh; border-inline: 0; border-block: 1px solid var(--border); }
+}

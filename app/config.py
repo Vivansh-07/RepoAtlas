@@ -4,6 +4,7 @@ from pathlib import Path
 
 BASE_DIR = Path(__file__).resolve().parent.parent
 CACHE_DB_PATH = BASE_DIR / "data" / "cache.db"
+STATIC_DIR = BASE_DIR / "static"
 
 # Part of the cache key. Bump it whenever the analysis output changes, so results
 # cached by older code are ignored instead of served.

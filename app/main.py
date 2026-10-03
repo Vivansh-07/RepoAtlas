@@ -7,6 +7,7 @@ from typing import Annotated
 
 from fastapi import Depends, FastAPI, Request
 from fastapi.responses import JSONResponse
+from fastapi.staticfiles import StaticFiles
 
 from app import config
 from app.cache import Cache
@@ -60,3 +61,9 @@ def analyze(request: AnalyzeRequest, cache: Annotated[Cache, Depends(get_cache)]
     # answering other requests meanwhile. Blocking inside `async def` would
     # freeze the whole server.
     return analyze_github_repo(request.repo_url, cache, request.include_external)
+
+
+# The frontend: static/index.html at "/", plus its CSS and JS files.
+# Must stay LAST: a mount at "/" matches every path, and FastAPI checks routes in
+# the order they were added, so anything registered after this would be unreachable.
+app.mount("/", StaticFiles(directory=config.STATIC_DIR, html=True), name="static")
