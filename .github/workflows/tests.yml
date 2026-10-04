@@ -1,0 +1,20 @@
+# Run the test suite on every push to main and on every pull request,
+# so a PR shows a green check (or a red cross) before it is merged.
+name: tests
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  pytest:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-python@v7
+        with:
+          python-version: "3.13"
+          cache: pip            # reuse downloaded wheels (numpy, scipy) between runs
+      - run: pip install -r requirements.txt
+      - run: pytest -q
