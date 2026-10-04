@@ -37,3 +37,8 @@ class GitError(RepoAtlasError):
 
 class GitTimeout(RepoAtlasError):
     status_code = 504
+
+
+class ServerBusy(RepoAtlasError):
+    """Too many analyses already running; try again shortly."""
+    status_code = 503

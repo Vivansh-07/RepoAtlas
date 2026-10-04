@@ -1,13 +1,14 @@
 """API tests, fully offline: the GitHub calls are faked and "cloning" hands back
 the sample repo, so we test real HTTP behaviour (status codes, JSON, caching)."""
 
+import threading
 from contextlib import contextmanager
 from pathlib import Path
 
 import pytest
 from fastapi.testclient import TestClient
 
-from app import pipeline
+from app import config, pipeline
 from app.cache import Cache
 from app.errors import GitTimeout, RepoNotFound
 from app.main import app, get_cache
@@ -131,6 +132,34 @@ def test_generate_endpoint(client):
 ])
 def test_generate_rejects_bad_parameters(client, params, status):
     assert client.get("/api/generate", params=params).status_code == status
+
+
+def test_busy_server_answers_503_but_cache_hits_still_work(client, clones, monkeypatch):
+    analyze(client)                                    # fills the cache while slots are free
+    # Now pretend every analysis slot is taken, and don't wait long for one.
+    monkeypatch.setattr(pipeline, "_analysis_slots", threading.BoundedSemaphore(1))
+    pipeline._analysis_slots.acquire()
+    monkeypatch.setattr(config, "ANALYSIS_WAIT_S", 0.01)
+
+    assert analyze(client).json()["cached"]            # cache hit: no slot needed
+    busy = client.post("/api/analyze", json={"repo_url": "https://github.com/acme/other"})
+    assert busy.status_code == 503
+    assert "busy" in busy.json()["detail"]
+    assert clones == ["acme/shop"]                     # the second repo was never cloned
+
+
+def test_failed_analysis_gives_its_slot_back(client, monkeypatch):
+    monkeypatch.setattr(pipeline, "_analysis_slots", threading.BoundedSemaphore(1))
+    monkeypatch.setattr(pipeline, "get_head_sha", lambda repo: FAKE_SHA)
+
+    @contextmanager
+    def broken_clone(repo):
+        raise GitTimeout("too slow")
+        yield  # pragma: no cover (makes this a generator)
+
+    monkeypatch.setattr(pipeline, "clone_repo", broken_clone)
+    assert analyze(client).status_code == 504
+    assert pipeline._analysis_slots.acquire(blocking=False)   # the slot is free again
 
 
 @pytest.mark.parametrize("error, status", [(RepoNotFound("no such repo"), 404),

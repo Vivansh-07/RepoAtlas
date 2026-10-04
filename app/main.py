@@ -65,6 +65,7 @@ _ERRORS = {
         413: "Too many Python files",
         422: "No Python files found",
         502: "git failed",
+        503: "Too many analyses running; try again shortly",
         504: "GitHub took too long",
     }.items()
 }

@@ -14,6 +14,11 @@ ANALYSIS_VERSION = 1
 LS_REMOTE_TIMEOUT_S = 15
 CLONE_TIMEOUT_S = 60
 
+# At most this many analyses clone + parse at the same time (a free hosting plan
+# has ~512 MB of RAM). Others wait up to ANALYSIS_WAIT_S, then get a 503.
+MAX_CONCURRENT_ANALYSES = 2
+ANALYSIS_WAIT_S = 20
+
 # Parsing limits
 MAX_PY_FILES = 2000              # more than this -> 413
 MAX_FILE_BYTES = 1_000_000       # larger .py files are skipped (usually generated code)
