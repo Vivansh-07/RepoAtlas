@@ -23,6 +23,21 @@ app = FastAPI(
 )
 
 
+class RevalidatingStaticFiles(StaticFiles):
+    """Static files that browsers must re-check before reusing a cached copy.
+
+    Without a Cache-Control header, browsers guess how long a file stays fresh
+    (often hours), so after an update users would keep running old JS against new
+    HTML. "no-cache" still allows caching, but each use costs one quick request
+    that answers 304 Not Modified when nothing changed.
+    """
+
+    def file_response(self, *args, **kwargs):
+        response = super().file_response(*args, **kwargs)
+        response.headers["Cache-Control"] = "no-cache"
+        return response
+
+
 @lru_cache
 def get_cache() -> Cache:
     # Created on first use (not at import), and tests can swap it out through
@@ -86,4 +101,4 @@ def generate_graph(
 # The frontend: static/index.html at "/", plus its CSS and JS files.
 # Must stay LAST: a mount at "/" matches every path, and FastAPI checks routes in
 # the order they were added, so anything registered after this would be unreachable.
-app.mount("/", StaticFiles(directory=config.STATIC_DIR, html=True), name="static")
+app.mount("/", RevalidatingStaticFiles(directory=config.STATIC_DIR, html=True), name="static")

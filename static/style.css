@@ -97,7 +97,7 @@ body {
 .muted { color: var(--muted); font-size: 13px; }
 
 /* ---------- Form controls ---------- */
-input[type="url"] {
+input[type="url"], input[type="number"] {
   width: 100%;
   padding: 9px 12px;
   font: inherit;
@@ -106,7 +106,7 @@ input[type="url"] {
   border: 1px solid var(--border-input);
   border-radius: var(--radius);
 }
-input[type="url"]:focus {
+input[type="url"]:focus, input[type="number"]:focus {
   outline: none;
   border-color: var(--accent);
   box-shadow: 0 0 0 3px var(--accent-tint);   /* soft focus ring */
@@ -155,7 +155,7 @@ input[type="url"]:focus {
   border-inline: 1px solid var(--border);
 }
 /* Cytoscape needs a container with a real size: fill the whole canvas. */
-#graph { position: absolute; inset: 0; }
+#graph, #lab-graph { position: absolute; inset: 0; }
 
 .empty-state {
   position: absolute;
@@ -327,6 +327,62 @@ code { font-family: ui-monospace, "Cascadia Code", Consolas, monospace; font-siz
 .legend li { display: flex; align-items: center; gap: 10px; }
 .legend svg { flex: none; width: 40px; height: 20px; }
 .legend b { font-weight: 600; }
+
+/* ---------- Tabs: only one workspace visible at a time ---------- */
+.workspace[hidden] { display: none; }   /* our display:grid would otherwise beat `hidden` */
+
+/* ---------- Graph Lab ---------- */
+.segmented.two { grid-template-columns: repeat(2, 1fr); }
+
+.model-list { display: flex; flex-direction: column; gap: 6px; }
+.model-option {
+  display: block;
+  width: 100%;
+  padding: 8px 10px;
+  font: inherit;
+  text-align: left;
+  background: #fff;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  cursor: pointer;
+}
+.model-option:hover { border-color: var(--accent); }
+.model-option.is-active { background: var(--accent-tint); border-color: var(--accent); }
+.model-name { display: block; font-size: 13px; font-weight: 600; color: var(--text); }
+.model-option.is-active .model-name { color: var(--accent-hover); }
+.model-desc { display: block; margin-top: 1px; font-size: 12px; color: var(--muted); }
+
+/* Label and value on one line, the slider underneath across both columns */
+.slider-row { display: grid; grid-template-columns: 1fr auto; align-items: center; gap: 2px 8px; margin-bottom: 10px; }
+.slider-row[hidden] { display: none; }
+.slider-row label { font-size: 13px; }
+.slider-row output { font-size: 13px; font-weight: 600; color: var(--accent-hover); font-variant-numeric: tabular-nums; }
+.slider-row input[type="range"] { grid-column: 1 / -1; width: 100%; accent-color: var(--accent); }
+.seed-label { margin-top: 14px; }
+.hint.is-error { color: var(--danger); }
+
+.card-head { display: flex; align-items: baseline; justify-content: space-between; gap: 8px; }
+.check { display: flex; align-items: center; gap: 6px; font-size: 12px; color: var(--muted); cursor: pointer; }
+.check input { accent-color: var(--accent); }
+.chart-box { position: relative; height: 210px; }     /* Chart.js fills this box */
+.stat-wide { grid-column: 1 / -1; }                    /* spans both columns */
+
+.look-for p { margin: 0 0 8px; font-size: 13px; line-height: 1.55; }
+.look-for p:last-child { margin-bottom: 0; }
+
+.node-info {
+  position: absolute;
+  left: 12px;
+  bottom: 12px;
+  margin: 0;
+  padding: 5px 10px;
+  font-size: 12px;
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+}
+.loading-card-small { display: flex; align-items: center; gap: 12px; min-width: 0; padding: 14px 18px; }
+.loading-card-small .loading-title { margin: 0; }
 
 /* ---------- Narrow screens: one column, graph first ---------- */
 @media (max-width: 900px) {

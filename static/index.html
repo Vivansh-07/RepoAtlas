@@ -30,7 +30,13 @@
   <script defer src="https://cdn.jsdelivr.net/npm/cytoscape-fcose@2.2.0/cytoscape-fcose.js"
           integrity="sha384-uk5Wbjq1+KqUdHO30w7N7GrEGdzBhaJeW9o/ANF6v9+yx3M/cBmoX51C000JNCUf"
           crossorigin="anonymous"></script>
-  <script defer src="app.js"></script>
+  <!-- Chart.js draws the Graph Lab's degree-distribution chart -->
+  <script defer src="https://cdn.jsdelivr.net/npm/chart.js@4.5.1/dist/chart.umd.min.js"
+          integrity="sha384-jb8JQMbMoBUzgWatfe6COACi2ljcDdZQ2OxczGA3bGNeWe+6DChMTBJemed7ZnvJ"
+          crossorigin="anonymous"></script>
+  <!-- Our own code, as ES modules: app.js imports explorer.js, lab.js and common.js.
+       Module scripts are deferred automatically and run after the scripts above. -->
+  <script type="module" src="app.js"></script>
 </head>
 <body>
   <!-- ===== Top bar: logo + tabs ===== -->
@@ -43,14 +49,15 @@
       </svg>
       RepoAtlas
     </a>
+    <!-- data-tab names the view each tab shows (see app.js) -->
     <nav class="tabs" aria-label="Views">
-      <button class="tab is-active" type="button">Repo Explorer</button>
-      <button class="tab" type="button" disabled title="Coming soon">Graph Lab</button>
+      <button class="tab is-active" type="button" data-tab="explorer" aria-selected="true">Repo Explorer</button>
+      <button class="tab" type="button" data-tab="lab" aria-selected="false">Graph Lab</button>
     </nav>
   </header>
 
-  <!-- ===== Three columns: controls | graph | summary ===== -->
-  <main class="workspace">
+  <!-- ===== Repo Explorer: controls | graph | summary ===== -->
+  <main class="workspace" id="explorer-view">
 
     <aside class="panel" aria-label="Controls">
       <!-- A real <form>: pressing Enter in the box submits it, for free -->
@@ -172,6 +179,162 @@
           </li>
         </ul>
         <p class="hint">Hover a module to focus on its neighbours. Click it for details.</p>
+      </div>
+    </aside>
+
+  </main>
+
+  <!-- ===== Graph Lab: model + parameters | graph | statistics + degree chart ===== -->
+  <!-- `hidden` until its tab is clicked (app.js) -->
+  <main class="workspace" id="lab-view" hidden>
+
+    <aside class="panel" aria-label="Graph Lab controls">
+      <div class="card">
+        <p class="field-label">Model</p>
+        <div class="model-list" role="group" aria-label="Random graph model">
+          <button type="button" class="model-option" data-model="er">
+            <span class="model-name">Erdős–Rényi</span>
+            <span class="model-desc">Every pair of nodes linked with probability p</span>
+          </button>
+          <button type="button" class="model-option is-active" data-model="ba">
+            <span class="model-name">Barabási–Albert</span>
+            <span class="model-desc">New nodes prefer to link to popular nodes</span>
+          </button>
+          <button type="button" class="model-option" data-model="ws">
+            <span class="model-name">Watts–Strogatz</span>
+            <span class="model-desc">A ring of neighbours with a few random shortcuts</span>
+          </button>
+        </div>
+      </div>
+
+      <div class="card">
+        <p class="field-label">Parameters</p>
+        <!-- data-for lists the models that use each slider; lab.js hides the rest.
+             <output> shows the slider's current value. -->
+        <div class="slider-row" data-for="er ba ws">
+          <label for="lab-n">Nodes <i>n</i></label><output data-value-for="lab-n"></output>
+          <input id="lab-n" type="range" min="10" max="500" step="10" value="200">
+        </div>
+        <div class="slider-row" data-for="er">
+          <label for="lab-p">Link probability <i>p</i></label><output data-value-for="lab-p"></output>
+          <input id="lab-p" type="range" min="0" max="0.1" step="0.001" value="0.02">
+        </div>
+        <div class="slider-row" data-for="ba">
+          <label for="lab-m">Links per new node <i>m</i></label><output data-value-for="lab-m"></output>
+          <input id="lab-m" type="range" min="1" max="8" step="1" value="2">
+        </div>
+        <div class="slider-row" data-for="ws">
+          <label for="lab-k">Ring neighbours <i>k</i></label><output data-value-for="lab-k"></output>
+          <input id="lab-k" type="range" min="2" max="20" step="2" value="6">
+        </div>
+        <div class="slider-row" data-for="ws">
+          <label for="lab-rewire">Rewiring probability <i>p</i></label><output data-value-for="lab-rewire"></output>
+          <input id="lab-rewire" type="range" min="0" max="1" step="0.01" value="0.05">
+        </div>
+        <p id="lab-budget" class="hint"></p>
+
+        <label class="field-label seed-label" for="lab-seed">Seed <span class="muted">(blank = random)</span></label>
+        <input id="lab-seed" type="number" min="0" step="1" placeholder="random">
+        <button id="lab-generate" class="button-primary" type="button">Generate</button>
+        <p id="lab-status" class="status" role="status"></p>
+      </div>
+
+      <div class="card">
+        <p class="field-label">Layout</p>
+        <div class="segmented two" role="group" aria-label="Graph Lab layout">
+          <button type="button" class="is-active" data-lab-layout="force">Force</button>
+          <button type="button" data-lab-layout="circle">Circle</button>
+        </div>
+        <p class="hint">Circle keeps nodes in the order they were created. For Watts–Strogatz that shows
+          the ring and its shortcuts.</p>
+      </div>
+    </aside>
+
+    <section class="canvas" aria-label="Generated graph">
+      <div id="lab-graph"></div>
+      <div class="canvas-tools">
+        <button id="lab-fit" type="button" title="Fit the whole graph on screen">Fit</button>
+      </div>
+      <!-- Filled in when hovering a node -->
+      <p id="lab-node-info" class="node-info" hidden></p>
+      <div id="lab-loading" class="loading" hidden>
+        <div class="loading-card loading-card-small">
+          <div class="spinner" aria-hidden="true"></div>
+          <p class="loading-title">Generating…</p>
+        </div>
+      </div>
+    </section>
+
+    <aside class="panel" aria-label="Graph Lab results">
+      <div class="card">
+        <h2 class="card-title">Statistics</h2>
+        <!-- data-lab-stat names the summary field that fills each value (lab.js) -->
+        <dl class="stats">
+          <div class="stat"><dt>Nodes</dt><dd data-lab-stat="num_nodes">–</dd></div>
+          <div class="stat"><dt>Edges</dt><dd data-lab-stat="num_edges">–</dd></div>
+          <div class="stat"><dt>Average degree</dt><dd data-lab-stat="avg_degree">–</dd></div>
+          <div class="stat"><dt>Max degree</dt><dd data-lab-stat="max_degree">–</dd></div>
+          <div class="stat"><dt>Clustering</dt><dd data-lab-stat="avg_clustering">–</dd></div>
+          <div class="stat"><dt>Avg path length</dt><dd data-lab-stat="avg_path_length">–</dd></div>
+          <div class="stat stat-wide"><dt>Components</dt><dd data-lab-stat="num_components">–</dd></div>
+          <div class="stat stat-wide"><dt>Communities</dt><dd data-lab-stat="num_communities">–</dd></div>
+        </dl>
+      </div>
+
+      <div class="card">
+        <div class="card-head">
+          <h2 class="card-title">Degree distribution</h2>
+          <label class="check"><input id="lab-log" type="checkbox"> Log–log</label>
+        </div>
+        <!-- Chart.js needs a sized box around its <canvas> to be responsive -->
+        <div class="chart-box"><canvas id="degree-chart" aria-label="Degree distribution chart" role="img"></canvas></div>
+        <p class="hint">How many nodes have each number of connections.</p>
+      </div>
+
+      <div class="card look-for">
+        <h2 class="card-title">What to look for</h2>
+        <div data-look-for="er" hidden>
+          <p><b>A hump, no hubs.</b> Most nodes have about the average number of connections, so the bars form
+            a hump around it. Nobody becomes a hub.</p>
+          <p><b>The phase transition.</b> Set n = 200 and slide p from 0.001 up past 1/n ≈ 0.005. Below it the
+            graph is dust (many components). Just above it, one giant component suddenly swallows most nodes.</p>
+          <p><b>Almost no clustering</b> (about p): two neighbours of a node are rarely linked to each other.</p>
+        </div>
+        <div data-look-for="ba">
+          <p><b>Hubs and a long tail.</b> A few nodes collect a huge number of links while most have only m.
+            The bars have a long tail to the right.</p>
+          <p><b>Turn on Log–log.</b> The points fall roughly on a straight line: the signature of a power law,
+            the "scale-free" property of the web, citation networks and software dependencies.</p>
+          <p><b>Compare with Erdős–Rényi</b> at the same average degree (m = 2 ≈ p = 4/n): here the biggest hub
+            has several times more links.</p>
+        </div>
+        <div data-look-for="ws" hidden>
+          <p><b>Use the Circle layout.</b> The band around the edge is the regular ring of neighbours; every
+            chord across the middle is a rewired shortcut.</p>
+          <p><b>The small-world effect.</b> At p = 0 clustering is high but paths are long. Slide p to about 0.05:
+            the average path length drops sharply while clustering barely moves. High clustering plus short paths
+            is a small world, like "six degrees of separation".</p>
+          <p><b>At p = 1</b> the graph is almost random and clustering collapses.</p>
+        </div>
+      </div>
+
+      <div class="card">
+        <h2 class="card-title">How to read it</h2>
+        <ul class="legend">
+          <li>
+            <svg viewBox="0 0 40 20" aria-hidden="true"><circle cx="8" cy="10" r="4" fill="#7c3aed"/><circle cx="26" cy="10" r="8" fill="#7c3aed"/></svg>
+            <span><b>Size</b>: degree (number of connections)</span>
+          </li>
+          <li>
+            <svg viewBox="0 0 40 20" aria-hidden="true"><circle cx="7" cy="10" r="5" fill="#7c3aed"/><circle cx="20" cy="10" r="5" fill="#0891b2"/><circle cx="33" cy="10" r="5" fill="#f59e0b"/></svg>
+            <span><b>Colour</b>: community (Louvain cluster)</span>
+          </li>
+          <li>
+            <svg viewBox="0 0 40 20" aria-hidden="true"><circle cx="20" cy="10" r="5" fill="#cbd5e1"/></svg>
+            <span><b>Grey</b>: no connections</span>
+          </li>
+        </ul>
+        <p class="hint">Hover a node to see its connections.</p>
       </div>
     </aside>
 
