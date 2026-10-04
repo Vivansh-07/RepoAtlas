@@ -1,7 +1,7 @@
+# What the server needs at runtime (installed in the Docker image).
+# Development tools live in requirements-dev.txt.
 fastapi==0.142.2
 uvicorn==0.54.0
 networkx==3.7
 numpy==2.5.3          # required by nx.pagerank
 scipy==1.18.1         # required by nx.pagerank
-pytest==9.1.1
-httpx==0.28.1         # tests only: FastAPI's TestClient

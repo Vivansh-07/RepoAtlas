@@ -1,0 +1,4 @@
+# Everything the server needs, plus the tools to test it.
+-r requirements.txt
+pytest==9.1.1
+httpx==0.28.1         # FastAPI's TestClient

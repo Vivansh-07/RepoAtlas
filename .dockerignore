@@ -1,0 +1,14 @@
+# Keep the build context (and the image) to what the server needs.
+.git
+.github
+.claude
+.venv
+venv
+__pycache__/
+*.pyc
+.pytest_cache
+data/
+tests/
+*.md
+Dockerfile
+render.yaml

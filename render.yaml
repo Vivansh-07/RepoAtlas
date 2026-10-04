@@ -1,0 +1,10 @@
+# Render "Blueprint": Dashboard -> New -> Blueprint -> pick this repository.
+# Render builds the Dockerfile, gives the service a public URL, and redeploys
+# automatically on every push to main.
+services:
+  - type: web
+    name: repoatlas
+    runtime: docker
+    plan: free
+    healthCheckPath: /api/health   # Render only sends traffic once this answers 200
+    autoDeploy: true

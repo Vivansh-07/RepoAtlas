@@ -16,5 +16,36 @@ jobs:
         with:
           python-version: "3.13"
           cache: pip            # reuse downloaded wheels (numpy, scipy) between runs
-      - run: pip install -r requirements.txt
+      - run: pip install -r requirements-dev.txt
       - run: pytest -q
+
+  # Proves the production image builds and really works: the server starts,
+  # git is installed, and it can clone and analyse a real public repository.
+  docker:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - run: docker build -t repoatlas .
+      - run: docker run -d -p 8000:8000 --name repoatlas repoatlas
+      - name: Wait for the health check
+        run: |
+          for i in $(seq 1 30); do
+            curl -sf http://localhost:8000/api/health && exit 0
+            sleep 1
+          done
+          exit 1
+      - name: Analyse a real repository (clone inside the container)
+        run: |
+          curl -sf -X POST http://localhost:8000/api/analyze \
+            -H "Content-Type: application/json" \
+            -d '{"repo_url": "https://github.com/pallets/markupsafe"}' -o result.json
+          python3 -c "import json; d = json.load(open('result.json')); s = d['summary']; assert s['num_nodes'] > 3, s; print(d['repo'], d['commit_sha'][:7], s['num_nodes'], 'modules', s['num_edges'], 'imports')"
+      - name: Generate a random graph
+        run: |
+          curl -sf "http://localhost:8000/api/generate?model=ba&n=50&m=2&seed=1" -o lab.json
+          python3 -c "import json; d = json.load(open('lab.json')); assert len(d['nodes']) == 50; print('lab ok', d['summary']['num_edges'], 'edges')"
+      - name: Serve the frontend
+        run: curl -sf http://localhost:8000/ | grep -q "RepoAtlas"
+      - name: Container logs (on failure)
+        if: failure()
+        run: docker logs repoatlas
