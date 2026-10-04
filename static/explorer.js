@@ -13,7 +13,7 @@
 
 import {
   ACCENT_COLOR, EDGE_COLOR, EDGE_FOCUS_COLOR, NODE_LABEL_STYLE,
-  el, fetchJson, focusNeighbourhood, sizeAndColor,
+  downloadPng, el, fetchJson, focusNeighbourhood, sizeAndColor,
 } from "./common.js";
 
 // ============================================================
@@ -112,6 +112,15 @@ layoutButtons.forEach((button) => {
 
 fitButton.addEventListener("click", () => {
   if (cy) cy.animate({ fit: { eles: cy.elements(), padding: 30 } }, { duration: 400 });
+});
+
+// e.g. repoatlas-pallets-flask-hierarchy.png
+document.getElementById("png-button").addEventListener("click", () => {
+  if (!cy || cy.nodes().empty()) {
+    showStatus("Analyse a repository first, then save the picture.", true);
+    return;
+  }
+  downloadPng(cy, `repoatlas-${currentRepo.replace("/", "-")}-${currentLayout}.png`);
 });
 
 // Escape closes the details card.
