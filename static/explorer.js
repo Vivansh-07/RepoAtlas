@@ -1,18 +1,27 @@
 /*
- * RepoAtlas frontend.
+ * Repo Explorer tab.
  *
  * The whole flow:
  *   user submits a GitHub URL
  *   -> we POST it to /api/analyze
  *   -> the server answers with nodes + edges already in Cytoscape's format
  *   -> we draw them, fill in the summary, and wire up hover/click/layouts.
+ *
+ * An ES module: app.js imports it, and only what's marked `export` (at the
+ * bottom) can be used from outside.
  */
+
+import {
+  ACCENT_COLOR, EDGE_COLOR, EDGE_FOCUS_COLOR, NODE_LABEL_STYLE,
+  el, fetchJson, focusNeighbourhood, sizeAndColor,
+} from "./common.js";
 
 // ============================================================
 // 1. Page elements and constants
 // ============================================================
 // document.getElementById returns the element that has id="..." in index.html.
 // `const` declares a variable that is never reassigned.
+const view = document.getElementById("explorer-view");
 const form = document.getElementById("analyze-form");
 const urlInput = document.getElementById("repo-url");
 const analyzeButton = document.getElementById("analyze-button");
@@ -25,19 +34,11 @@ const loadingTitle = document.getElementById("loading-title");
 const loadingSteps = document.getElementById("loading-steps");
 const layoutHint = document.getElementById("layout-hint");
 const fitButton = document.getElementById("fit-button");
-const exampleChips = document.querySelectorAll(".chip");          // every class="chip"
-const layoutButtons = document.querySelectorAll("[data-layout]"); // every data-layout="..."
+// querySelectorAll inside `view` only, so we never grab the Graph Lab's controls.
+const exampleChips = view.querySelectorAll(".chip");
+const layoutButtons = view.querySelectorAll("[data-layout]");
 
-// Community colours from CLAUDE.md. No reds (red = cycle), no greys (grey = isolated).
-const COMMUNITY_COLORS = [
-  "#7c3aed", "#0891b2", "#f59e0b", "#059669", "#2563eb", "#65a30d",
-  "#ea580c", "#c026d3", "#0d9488", "#ca8a04", "#4f46e5", "#0284c7",
-];
-const NO_COMMUNITY_COLOR = "#cbd5e1";
 const CYCLE_COLOR = "#e11d48";
-const ACCENT_COLOR = "#6d28d9";
-const EDGE_COLOR = "#94a3b8";
-const EDGE_FOCUS_COLOR = "#475569";
 const MIN_NODE_SIZE = 18;
 const MAX_NODE_SIZE = 80;
 // Label culling: a node shows its name when it's at least this many pixels wide
@@ -112,33 +113,14 @@ async function analyze(repoUrl) {
   }
 }
 
-/*
- * fetch() sends an HTTP request and returns a Promise: a placeholder for a value
- * that arrives later. `await` pauses *this function* until it arrives, while the
- * page stays responsive.
- */
-async function fetchAnalysis(repoUrl) {
-  let response;
-  try {
-    response = await fetch("/api/analyze", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ repo_url: repoUrl, include_external: false }),
-    });
-  } catch {
-    throw new Error("Can't reach the RepoAtlas server. Is it running?");
-  }
-
-  const body = await response.json().catch(() => ({}));   // not JSON? use {}
-  if (!response.ok) {
-    // Our errors look like {"detail": "message"}; FastAPI's validation errors
-    // put a list in "detail", so fall back to a generic message for those.
-    const message = typeof body.detail === "string"
-      ? body.detail
-      : `Something went wrong (HTTP ${response.status}).`;
-    throw new Error(message);
-  }
-  return body;
+// POST the URL; fetchJson (common.js) turns any failure into a readable Error.
+function fetchAnalysis(repoUrl) {
+  return fetchJson("/api/analyze", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    // JSON.stringify turns a JS object into the JSON text the API expects.
+    body: JSON.stringify({ repo_url: repoUrl, include_external: false }),
+  });
 }
 
 
@@ -201,14 +183,7 @@ const GRAPH_STYLE = [
       "border-width": 2,
       "border-color": "#ffffff",
       label: "",                           // names are switched on by the next rule
-      "font-family": "Inter, system-ui, sans-serif",
-      "font-size": 12,
-      "font-weight": 500,
-      color: "#0f172a",
-      "text-valign": "bottom",
-      "text-margin-y": 5,
-      "text-outline-color": "#ffffff",     // white halo keeps names readable over edges
-      "text-outline-width": 2.5,
+      ...NODE_LABEL_STYLE,                 // shared font + white halo (common.js)
       "transition-property": "opacity",    // fade smoothly on hover
       "transition-duration": "0.15s",
     },
@@ -442,42 +417,14 @@ function drawGraph(data) {
   runLayout(currentLayout);
 }
 
-/*
- * Add two display-only fields to every node:
- *  - size, from PageRank. We use the square root because people judge a circle
- *    by its AREA, and area grows with the square of the width. Scaling the
- *    width linearly would make the top module look far more dominant than it is.
- *  - color, from the Louvain community.
- */
+// Size from PageRank (square-root scaled, see common.js), colour from community.
 function prepareNodes(nodes) {
-  const ranks = nodes.map((node) => node.data.pagerank);
-  const min = Math.min(...ranks);           // ...ranks spreads the array into arguments
-  const max = Math.max(...ranks);
-
-  for (const node of nodes) {
-    const d = node.data;
-    const t = max > min ? (d.pagerank - min) / (max - min) : 0.5;   // 0 (least) .. 1 (most)
-    d.size = MIN_NODE_SIZE + Math.sqrt(t) * (MAX_NODE_SIZE - MIN_NODE_SIZE);
-    d.color = d.community === null
-      ? NO_COMMUNITY_COLOR
-      : COMMUNITY_COLORS[d.community % COMMUNITY_COLORS.length];   // % wraps past 12
-  }
+  sizeAndColor(nodes, (d) => d.pagerank, MIN_NODE_SIZE, MAX_NODE_SIZE);
 }
 
-/*
- * Focus + context: keep one module and its direct neighbours fully visible and
- * fade everything else, so you can follow its connections without losing the
- * big picture. Passing null clears the focus.
- */
+// Focus + context on one module (or none), shared with the Graph Lab.
 function focusOn(node) {
-  cy.batch(() => {               // batch = apply all class changes in a single redraw
-    cy.elements().removeClass("faded highlighted");
-    if (!node) return;
-    // closedNeighborhood = the node + its edges + the nodes at their other ends
-    const neighbourhood = node.closedNeighborhood();
-    cy.elements().not(neighbourhood).addClass("faded");
-    neighbourhood.addClass("highlighted");
-  });
+  focusNeighbourhood(cy, node);
 }
 
 function select(node) {
@@ -641,21 +588,8 @@ function showTopModules(topModules) {
 
 
 // ============================================================
-// 11. Small helpers
+// 11. Small helpers (el() lives in common.js)
 // ============================================================
-/*
- * Create an element with an optional class and text.
- * Text always goes in through textContent, never innerHTML: module names come
- * from someone else's repository, and innerHTML would run any HTML hidden in
- * them (an XSS attack). textContent always shows them as plain text.
- */
-function el(tag, className = "", text = "") {
-  const element = document.createElement(tag);
-  if (className) element.className = className;
-  element.textContent = text;
-  return element;
-}
-
 function setBusy(busy) {
   analyzeButton.disabled = busy;
   analyzeButton.textContent = busy ? "Analysing…" : "Analyze";
@@ -672,19 +606,38 @@ function showStatus(message, isError = false) {
 // 12. Shareable links: /?repo=pallets/flask&layout=hierarchy
 // ============================================================
 // Keep the address bar in sync with what's on screen, so it can be copied and
-// shared. replaceState changes the URL without reloading the page.
+// shared. replaceState changes the URL without reloading the page. Only while
+// this tab is visible: an analysis finishing in the background mustn't
+// overwrite the Graph Lab's link.
 // (currentRepo comes from the server, which only accepts [A-Za-z0-9_.-] names.)
 function updateAddressBar() {
-  if (currentRepo) history.replaceState(null, "", `?repo=${currentRepo}&layout=${currentLayout}`);
+  if (view.hidden) return;
+  history.replaceState(null, "", currentRepo ? `?repo=${currentRepo}&layout=${currentLayout}` : "/");
 }
 
 // On page load, open whatever the link asks for. URLSearchParams reads the
 // "?key=value&..." part of the address. This runs last in the file because it
 // uses LAYOUTS and the functions defined above.
 const linkParams = new URLSearchParams(window.location.search);
-if (linkParams.get("layout") in LAYOUTS) runLayout(linkParams.get("layout"));
 if (linkParams.get("repo")) {
+  if (linkParams.get("layout") in LAYOUTS) runLayout(linkParams.get("layout"));
   const repo = linkParams.get("repo");
   urlInput.value = repo.startsWith("https://") ? repo : `https://github.com/${repo}`;
   form.requestSubmit();
+}
+
+
+// ============================================================
+// 13. What app.js (the tab switcher) can use
+// ============================================================
+// Called when this tab becomes visible. A Cytoscape graph that was hidden
+// doesn't notice size changes, so tell it to re-measure its container.
+export function showExplorer() {
+  if (cy) cy.resize();
+  updateAddressBar();
+}
+
+// For poking around in the browser console (see app.js).
+export function getExplorerGraph() {
+  return cy;
 }
