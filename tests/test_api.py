@@ -62,6 +62,12 @@ def test_frontend_is_served_at_root(client):
     assert client.get("/docs").status_code == 200
 
 
+def test_static_files_must_be_revalidated(client):
+    # Otherwise browsers keep running stale JS/CSS after an update.
+    for path in ["/", "/style.css", "/app.js", "/lab.js"]:
+        assert client.get(path).headers["cache-control"] == "no-cache"
+
+
 def test_analyze_returns_a_cytoscape_graph(client, clones):
     resp = analyze(client)
     assert resp.status_code == 200
