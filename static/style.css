@@ -97,7 +97,7 @@ body {
 .muted { color: var(--muted); font-size: 13px; }
 
 /* ---------- Form controls ---------- */
-input[type="url"], input[type="number"] {
+input[type="url"], input[type="number"], input[type="text"], input[type="search"] {
   width: 100%;
   padding: 9px 12px;
   font: inherit;
@@ -106,7 +106,7 @@ input[type="url"], input[type="number"] {
   border: 1px solid var(--border-input);
   border-radius: var(--radius);
 }
-input[type="url"]:focus, input[type="number"]:focus {
+input[type="url"]:focus, input[type="number"]:focus, input[type="text"]:focus, input[type="search"]:focus {
   outline: none;
   border-color: var(--accent);
   box-shadow: 0 0 0 3px var(--accent-tint);   /* soft focus ring */
@@ -383,6 +383,12 @@ code { font-family: ui-monospace, "Cascadia Code", Consolas, monospace; font-siz
 }
 .loading-card-small { display: flex; align-items: center; gap: 12px; min-width: 0; padding: 14px 18px; }
 .loading-card-small .loading-title { margin: 0; }
+
+/* ---------- Explorer: Show toggles ---------- */
+.toggle { display: flex; align-items: baseline; gap: 8px; margin: 0 0 8px; font-size: 13px; cursor: pointer; }
+.toggle:last-child { margin-bottom: 0; }
+.toggle input { accent-color: var(--accent); transform: translateY(1px); }
+.toggle .muted { font-size: 12px; }
 
 /* ---------- Narrow screens: one column, graph first ---------- */
 @media (max-width: 900px) {

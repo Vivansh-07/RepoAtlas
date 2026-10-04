@@ -34,11 +34,21 @@ const loadingTitle = document.getElementById("loading-title");
 const loadingSteps = document.getElementById("loading-steps");
 const layoutHint = document.getElementById("layout-hint");
 const fitButton = document.getElementById("fit-button");
+const searchForm = document.getElementById("search-form");
+const searchInput = document.getElementById("module-search");
+const searchOptions = document.getElementById("module-names");
+const searchHint = document.getElementById("search-hint");
+const showTypeOnly = document.getElementById("show-type-only");
+const showExternal = document.getElementById("show-external");
+const cyclesOnly = document.getElementById("cycles-only");
+const filterNote = document.getElementById("filter-note");
 // querySelectorAll inside `view` only, so we never grab the Graph Lab's controls.
 const exampleChips = view.querySelectorAll(".chip");
 const layoutButtons = view.querySelectorAll("[data-layout]");
 
 const CYCLE_COLOR = "#e11d48";
+const EXTERNAL_COLOR = "#94a3b8";
+const EXTERNAL_SIZE = 14;
 const MIN_NODE_SIZE = 18;
 const MAX_NODE_SIZE = 80;
 // Label culling: a node shows its name when it's at least this many pixels wide
@@ -51,6 +61,7 @@ const LANDMARK_COUNT = 8;
 // ============================================================
 // `let` because these change as the user works.
 let cy = null;              // the Cytoscape graph
+let lastData = null;        // the full answer of the last analysis, external libraries included
 let summary = null;         // summary of the last analysis
 let currentRepo = null;     // "owner/name" of the graph on screen
 let selected = null;        // the clicked node, or null
@@ -65,7 +76,27 @@ let runningLayout = null;   // so a new layout can stop one still animating
 // submitted: clicking Analyze, or pressing Enter in the input box.
 form.addEventListener("submit", async (event) => {
   event.preventDefault();   // stop the browser from reloading the page
-  await analyze(urlInput.value.trim());
+  await analyze(normalizeRepoInput(urlInput.value));
+});
+
+// The "Show" checkboxes: "change" fires when one is ticked or unticked.
+[showTypeOnly, showExternal, cyclesOnly].forEach((box) => {
+  box.addEventListener("change", () => {
+    if (!lastData) return;
+    redraw();
+    updateAddressBar();
+  });
+});
+
+// Search: Enter jumps to the best match; picking a suggestion jumps straight away.
+searchForm.addEventListener("submit", (event) => {
+  event.preventDefault();
+  findModule(searchInput.value);
+});
+searchInput.addEventListener("input", () => {
+  searchHint.textContent = "";
+  // A suggestion picked from the list fills in an exact module name.
+  if (cy && cy.getElementById(searchInput.value).nonempty()) findModule(searchInput.value);
 });
 
 exampleChips.forEach((chip) => {
@@ -98,9 +129,13 @@ async function analyze(repoUrl) {
   const stopLoading = startLoading(repoUrl);
   try {
     const data = await fetchAnalysis(repoUrl);
+    lastData = data;
     summary = data.summary;
     currentRepo = data.repo;
-    drawGraph(data);
+    // Sizes and colours are worked out once, from the whole repo, so the Show
+    // options can hide nodes without ever resizing the ones that stay.
+    prepareNodes(data.nodes);
+    redraw();
     updateAddressBar();
     showSummary(data.summary);
     const source = data.cached ? "from cache" : "freshly analysed";
@@ -114,13 +149,27 @@ async function analyze(repoUrl) {
 }
 
 // POST the URL; fetchJson (common.js) turns any failure into a readable Error.
+// We always ask for external libraries too and hide them in the browser, so the
+// "External libraries" checkbox works instantly, without a second request.
 function fetchAnalysis(repoUrl) {
   return fetchJson("/api/analyze", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     // JSON.stringify turns a JS object into the JSON text the API expects.
-    body: JSON.stringify({ repo_url: repoUrl, include_external: false }),
+    body: JSON.stringify({ repo_url: repoUrl, include_external: true }),
   });
+}
+
+/*
+ * Be forgiving about what people paste: "pallets/flask", "github.com/pallets/flask",
+ * "http://...", a trailing ".git" or "/" all become https://github.com/pallets/flask.
+ * The server still checks the result strictly, so this is convenience, not security.
+ */
+function normalizeRepoInput(text) {
+  const t = text.trim().replace(/\.git$/, "").replace(/\/+$/, "").replace(/^http:\/\//i, "https://");
+  if (/^[\w.-]+\/[\w.-]+$/.test(t)) return `https://github.com/${t}`;     // owner/repo
+  if (/^(www\.)?github\.com\//i.test(t)) return `https://${t.replace(/^www\./i, "")}`;
+  return t.replace(/^https:\/\/www\.github\.com\//i, "https://github.com/");
 }
 
 
@@ -222,6 +271,16 @@ const GRAPH_STYLE = [
     },
   },
   { selector: "edge[?type_only]", style: { "line-style": "dashed" } },
+  {
+    // Imports of external libraries: fainter, so the repo's own structure stays in front.
+    selector: "edge[kind != 'internal']",
+    style: { "line-color": "#cbd5e1", "target-arrow-color": "#cbd5e1", opacity: 0.6 },
+  },
+  {
+    // External library nodes: small, grey, dashed outline (see the legend).
+    selector: "node[?is_external]",
+    style: { "border-style": "dashed", "border-color": "#64748b", "border-width": 1.5 },
+  },
   {
     selector: "edge.highlighted",
     style: { "line-color": EDGE_FOCUS_COLOR, "target-arrow-color": EDGE_FOCUS_COLOR, opacity: 0.9 },
@@ -365,6 +424,7 @@ function runLayout(name) {
   layoutHint.textContent = LAYOUTS[name].hint;
   if (!cy) return;
   updateAddressBar();
+  if (cy.nodes().empty()) return;            // e.g. "only circular dependencies" on a cycle-free repo
 
   if (runningLayout) runningLayout.stop();   // don't let two layouts fight over positions
   // {...a, b: 1} copies every field of a, then adds/overrides b.
@@ -376,9 +436,43 @@ function runLayout(name) {
 // ============================================================
 // 8. Draw the graph and wire up interactions
 // ============================================================
-function drawGraph(data) {
-  prepareNodes(data.nodes);
+// The elements the "Show" options let through, as fresh copies for Cytoscape.
+function visibleElements() {
+  let nodes = lastData.nodes;
+  if (!showExternal.checked) nodes = nodes.filter((n) => !n.data.is_external);
+  if (cyclesOnly.checked) nodes = nodes.filter((n) => n.data.in_cycle);
+  // A Set answers "is this id in here?" instantly, however many nodes there are.
+  const kept = new Set(nodes.map((n) => n.data.id));
+  const edges = lastData.edges.filter((e) =>
+    kept.has(e.data.source) && kept.has(e.data.target) && (showTypeOnly.checked || !e.data.type_only));
+  // {...x} makes a shallow copy, so Cytoscape never holds on to our master data.
+  return {
+    nodes: nodes.map((n) => ({ data: { ...n.data } })),
+    edges: edges.map((e) => ({ data: { ...e.data } })),
+  };
+}
 
+function redraw() {
+  const elements = visibleElements();
+  drawGraph(elements);
+  updateSearchOptions();
+  updateFilterNote(elements);
+}
+
+// "Showing 13 of 82 modules" whenever a Show option hides something.
+function updateFilterNote(elements) {
+  const total = lastData.nodes.filter((n) => !n.data.is_external).length;
+  const shown = elements.nodes.filter((n) => !n.data.is_external).length;
+  const externals = elements.nodes.length - shown;
+  let note = "";
+  if (cyclesOnly.checked && shown === 0) note = "This repository has no circular dependencies.";
+  else if (shown < total) note = `Showing ${shown} of ${total} modules (only circular dependencies)`;
+  if (externals > 0) note += `${note ? " · " : ""}${externals} external libraries`;
+  filterNote.textContent = note;
+  filterNote.hidden = note === "";
+}
+
+function drawGraph(elements) {
   if (cy) cy.destroy();          // throw away the previous graph, if any
   selected = null;
   hideDetails();
@@ -386,7 +480,7 @@ function drawGraph(data) {
 
   cy = cytoscape({
     container: document.getElementById("graph"),
-    elements: { nodes: data.nodes, edges: data.edges },   // already Cytoscape's format
+    elements,                    // already Cytoscape's {data: ...} format
     style: GRAPH_STYLE,
     minZoom: 0.1,
     maxZoom: 3,
@@ -418,8 +512,47 @@ function drawGraph(data) {
 }
 
 // Size from PageRank (square-root scaled, see common.js), colour from community.
+// Repo modules: size from PageRank, colour from community (common.js).
+// External libraries have no PageRank of their own: small and grey.
 function prepareNodes(nodes) {
-  sizeAndColor(nodes, (d) => d.pagerank, MIN_NODE_SIZE, MAX_NODE_SIZE);
+  sizeAndColor(nodes.filter((n) => !n.data.is_external), (d) => d.pagerank, MIN_NODE_SIZE, MAX_NODE_SIZE);
+  for (const node of nodes) {
+    if (node.data.is_external) Object.assign(node.data, { size: EXTERNAL_SIZE, color: EXTERNAL_COLOR });
+  }
+}
+
+// Fill the search box's suggestion list with the visible modules, most important first.
+function updateSearchOptions() {
+  const ids = cy.nodes().sort((a, b) => b.data("pagerank") - a.data("pagerank")).map((n) => n.id());
+  searchOptions.replaceChildren(...ids.map((id) => {
+    const option = el("option");
+    option.value = id;
+    return option;
+  }));
+}
+
+/*
+ * Jump to a module by name: an exact match first, otherwise the most important
+ * module whose name contains the text ("app" finds flask.app).
+ */
+function findModule(query) {
+  const q = query.trim().toLowerCase();
+  if (!q || !cy) return;
+  const exact = cy.nodes().filter((n) => n.id().toLowerCase() === q);
+  const best = exact.nonempty()
+    ? exact[0]
+    : cy.nodes().filter((n) => n.id().toLowerCase().includes(q))
+        .sort((a, b) => b.data("pagerank") - a.data("pagerank"))[0];
+  if (best) {
+    searchHint.textContent = "";
+    selectAndCenter(best.id());
+    return;
+  }
+  // Not on screen: is it hidden by a Show option, or not in the repo at all?
+  const hidden = lastData.nodes.some((n) => n.data.id.toLowerCase().includes(q));
+  searchHint.textContent = hidden
+    ? `"${query.trim()}" is hidden by the Show options below.`
+    : `No module matches "${query.trim()}".`;
 }
 
 // Focus + context on one module (or none), shared with the Graph Lab.
@@ -612,7 +745,16 @@ function showStatus(message, isError = false) {
 // (currentRepo comes from the server, which only accepts [A-Za-z0-9_.-] names.)
 function updateAddressBar() {
   if (view.hidden) return;
-  history.replaceState(null, "", currentRepo ? `?repo=${currentRepo}&layout=${currentLayout}` : "/");
+  if (!currentRepo) {
+    history.replaceState(null, "", "/");
+    return;
+  }
+  // Show options are only added when they differ from the defaults.
+  let link = `?repo=${currentRepo}&layout=${currentLayout}`;
+  if (showExternal.checked) link += "&external=1";
+  if (!showTypeOnly.checked) link += "&typeonly=0";
+  if (cyclesOnly.checked) link += "&cycles=1";
+  history.replaceState(null, "", link);
 }
 
 // On page load, open whatever the link asks for. URLSearchParams reads the
@@ -621,6 +763,9 @@ function updateAddressBar() {
 const linkParams = new URLSearchParams(window.location.search);
 if (linkParams.get("repo")) {
   if (linkParams.get("layout") in LAYOUTS) runLayout(linkParams.get("layout"));
+  showExternal.checked = linkParams.get("external") === "1";
+  showTypeOnly.checked = linkParams.get("typeonly") !== "0";
+  cyclesOnly.checked = linkParams.get("cycles") === "1";
   const repo = linkParams.get("repo");
   urlInput.value = repo.startsWith("https://") ? repo : `https://github.com/${repo}`;
   form.requestSubmit();
