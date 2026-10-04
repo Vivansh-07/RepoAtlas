@@ -9,6 +9,7 @@ from __future__ import annotations
 from pydantic import BaseModel, Field
 
 from app.analytics import Summary
+from app.generators import LabSummary
 from app.resolver import Kind
 
 
@@ -67,3 +68,39 @@ class GraphResponse(BaseModel):
 
 class ErrorResponse(BaseModel):
     detail: str
+
+
+# ---- Graph Lab -------------------------------------------------------------
+
+class LabNodeData(BaseModel):
+    id: str
+    label: str
+    degree: int
+    clustering: float = Field(description="Share of this node's neighbour pairs that are also linked (0..1)")
+    community: int | None
+
+
+class LabEdgeData(BaseModel):
+    id: str
+    source: str
+    target: str
+
+
+class LabNode(BaseModel):
+    data: LabNodeData
+
+
+class LabEdge(BaseModel):
+    data: LabEdgeData
+
+
+class DegreeDistribution(BaseModel):
+    degree: list[int] = Field(description="0, 1, 2, ... up to the maximum degree")
+    count: list[int] = Field(description="How many nodes have each degree")
+
+
+class GenerateResponse(BaseModel):
+    summary: LabSummary
+    degree_distribution: DegreeDistribution
+    nodes: list[LabNode]
+    edges: list[LabEdge]

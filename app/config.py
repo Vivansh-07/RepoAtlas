@@ -20,6 +20,7 @@ MAX_FILE_BYTES = 1_000_000       # larger .py files are skipped (usually generat
 
 # Graph Lab
 MAX_GENERATED_NODES = 500
+MAX_GENERATED_EDGES = 5000       # beyond this the browser drawing gets sluggish
 
 # Directories never worth parsing: VCS data, virtualenvs, build output, docs.
 SKIP_DIRS = frozenset({

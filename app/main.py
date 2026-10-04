@@ -3,16 +3,17 @@
 from __future__ import annotations
 
 from functools import lru_cache
-from typing import Annotated
+from typing import Annotated, Literal
 
-from fastapi import Depends, FastAPI, Request
+from fastapi import Depends, FastAPI, Query, Request
 from fastapi.responses import JSONResponse
 from fastapi.staticfiles import StaticFiles
 
 from app import config
 from app.cache import Cache
 from app.errors import RepoAtlasError
-from app.models import AnalyzeRequest, ErrorResponse, GraphResponse
+from app.generators import generate
+from app.models import AnalyzeRequest, ErrorResponse, GenerateResponse, GraphResponse
 from app.pipeline import analyze_github_repo
 
 app = FastAPI(
@@ -61,6 +62,25 @@ def analyze(request: AnalyzeRequest, cache: Annotated[Cache, Depends(get_cache)]
     # answering other requests meanwhile. Blocking inside `async def` would
     # freeze the whole server.
     return analyze_github_repo(request.repo_url, cache, request.include_external)
+
+
+@app.get(
+    "/api/generate",
+    response_model=GenerateResponse,
+    responses={400: {"model": ErrorResponse, "description": "Parameters out of range"}},
+)
+def generate_graph(
+    # GET, not POST: the graph is a pure function of these parameters, so a
+    # generate URL can be bookmarked or shared.
+    model: Annotated[Literal["er", "ba", "ws"], Query(description="er = Erdős–Rényi, ba = Barabási–Albert, ws = Watts–Strogatz")],
+    n: Annotated[int, Query(description="Number of nodes (2–500)")] = 100,
+    p: Annotated[float | None, Query(description="ER: link probability. WS: rewiring probability.")] = None,
+    m: Annotated[int | None, Query(description="BA: links per new node")] = None,
+    k: Annotated[int | None, Query(description="WS: ring neighbours per node (even)")] = None,
+    seed: Annotated[int | None, Query(description="Random seed; omit it and one is picked and returned")] = None,
+) -> dict:
+    # Plain def again: generating and measuring up to 500 nodes is CPU work.
+    return generate(model, n, p, m, k, seed)
 
 
 # The frontend: static/index.html at "/", plus its CSS and JS files.
