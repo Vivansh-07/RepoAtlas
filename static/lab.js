@@ -8,7 +8,7 @@
 
 import {
   ACCENT_COLOR, EDGE_COLOR, EDGE_FOCUS_COLOR, NODE_LABEL_STYLE,
-  fetchJson, focusNeighbourhood, sizeAndColor,
+  downloadPng, fetchJson, focusNeighbourhood, sizeAndColor,
 } from "./common.js";
 
 // ============================================================
@@ -116,6 +116,13 @@ layoutButtons.forEach((button) => button.addEventListener("click", () => runLayo
 
 fitButton.addEventListener("click", () => {
   if (cy) cy.animate({ fit: { eles: cy.elements(), padding: 30 } }, { duration: 400 });
+});
+
+// e.g. repoatlas-lab-ba-n200-seed1.png: the name says how to regenerate it.
+document.getElementById("lab-png").addEventListener("click", () => {
+  if (!cy || !lastData) return;
+  const s = lastData.summary;
+  downloadPng(cy, `repoatlas-lab-${s.model}-n${s.n}-seed${s.seed}.png`);
 });
 
 logToggle.addEventListener("change", () => {

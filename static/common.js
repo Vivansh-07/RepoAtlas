@@ -66,6 +66,20 @@ export function focusNeighbourhood(cy, node) {
 }
 
 /*
+ * Save what a Cytoscape graph currently shows as a PNG file.
+ * cy.png() draws the graph into an image and returns it as a "data URL" (the
+ * file's bytes written out as text). full: false = exactly the current view,
+ * as on screen; scale: 2 = double resolution, so it stays sharp in a report.
+ * A temporary <a download> link then makes the browser save it as a file.
+ */
+export function downloadPng(cy, filename) {
+  const link = document.createElement("a");
+  link.href = cy.png({ full: false, scale: 2, bg: "#ffffff" });
+  link.download = filename;
+  link.click();
+}
+
+/*
  * fetch() + JSON + friendly errors, used by both tabs.
  *
  * fetch() sends an HTTP request and returns a Promise: a placeholder for a value
