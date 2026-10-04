@@ -13,6 +13,11 @@ class InvalidRepoURL(RepoAtlasError):
     status_code = 400
 
 
+class InvalidParams(RepoAtlasError):
+    """Graph Lab parameters that are well-formed but don't make sense (e.g. m >= n)."""
+    status_code = 400
+
+
 class RepoNotFound(RepoAtlasError):
     status_code = 404
 

@@ -109,6 +109,24 @@ def test_bad_requests_never_clone(client, clones, payload, status):
     assert clones == []
 
 
+def test_generate_endpoint(client):
+    resp = client.get("/api/generate", params={"model": "ws", "n": 30, "k": 4, "p": 0.1, "seed": 5})
+    assert resp.status_code == 200
+    body = resp.json()
+    assert (len(body["nodes"]), len(body["edges"])) == (30, 60)
+    assert body["summary"]["seed"] == 5
+    assert sum(body["degree_distribution"]["count"]) == 30
+
+
+@pytest.mark.parametrize("params, status", [
+    ({"model": "ba", "n": 10, "m": 10}, 400),      # our semantic check
+    ({"model": "xyz", "n": 10}, 422),              # FastAPI's own validation (unknown model)
+    ({"model": "er", "n": "many"}, 422),           # not a number
+])
+def test_generate_rejects_bad_parameters(client, params, status):
+    assert client.get("/api/generate", params=params).status_code == status
+
+
 @pytest.mark.parametrize("error, status", [(RepoNotFound("no such repo"), 404),
                                            (GitTimeout("too slow"), 504)])
 def test_pipeline_errors_become_status_codes(client, monkeypatch, error, status):
