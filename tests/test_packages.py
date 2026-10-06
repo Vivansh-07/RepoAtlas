@@ -7,7 +7,7 @@ import pytest
 
 from app.analytics import analyze
 from app.graph_builder import build_graph
-from app.packages import TOP_LEVEL, build_package_graph, package_of
+from app.packages import TOP_LEVEL, build_package_graph, group_modules, package_of
 from app.parser import parse_repo
 from app.resolver import resolve_repo
 
@@ -36,6 +36,37 @@ def test_top_level_modules_of_different_folders_stay_apart():
     packages = build_package_graph(g)
     assert {n: d["path"] for n, d in packages.nodes(data=True)} == {
         "examples/aliases/": "examples/aliases", "examples/colors/": "examples/colors", TOP_LEVEL: "."}
+
+
+def test_folders_sharing_a_name_stay_apart():
+    # Like Flask: tests/ at the root and in a nested example project are both `tests`.
+    groups = group_modules({
+        "tests.test_a": ("tests", "tests"),
+        "tests.conftest": ("tests", "tests"),
+        "tests.test_b": ("tests", "examples/tut/tests"),
+    })
+    assert groups == {"tests.test_a": "tests", "tests.conftest": "tests",       # shallowest keeps the name
+                      "tests.test_b": "examples/tut/tests/"}
+
+
+def test_folder_with_several_package_names_is_named_by_its_path():
+    # After a module name clash the parser uses the full path, so one folder can
+    # hold `tests.test_b` and `examples.tut.tests.conftest`: still one group.
+    groups = group_modules({
+        "tests.test_b": ("tests", "examples/tut/tests"),
+        "examples.tut.tests.conftest": ("examples.tut.tests", "examples/tut/tests"),
+    })
+    assert set(groups.values()) == {"examples/tut/tests/"}
+
+
+def test_package_node_path_is_its_folder():
+    g = nx.DiGraph()
+    for name, path in [("tests.test_a", "tests/test_a.py"), ("tests.test_b", "examples/tut/tests/test_b.py")]:
+        g.add_node(name, label=name, package="tests", path=path, loc=5, kind="internal", is_external=False,
+                   is_package=False, parse_error=None)
+    packages = build_package_graph(g)
+    assert {n: d["path"] for n, d in packages.nodes(data=True)} == {
+        "tests": "tests", "examples/tut/tests/": "examples/tut/tests"}
 
 
 @pytest.fixture(scope="module")
