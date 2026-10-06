@@ -341,7 +341,7 @@
         </div>
         <div data-look-for="ws" hidden>
           <p><b>Use the Circle layout.</b> The band around the edge is the regular ring of neighbours; every
-            chord across the middle is a rewired shortcut.</p>
+            violet chord across the middle is a rewired shortcut.</p>
           <p><b>The small-world effect.</b> At p = 0 clustering is high but paths are long. Slide p to about 0.05:
             the average path length drops sharply while clustering barely moves. High clustering plus short paths
             is a small world, like "six degrees of separation".</p>
@@ -363,6 +363,10 @@
           <li>
             <svg viewBox="0 0 40 20" aria-hidden="true"><circle cx="20" cy="10" r="5" fill="#cbd5e1"/></svg>
             <span><b>Grey</b>: no connections</span>
+          </li>
+          <li>
+            <svg viewBox="0 0 40 20" aria-hidden="true"><line x1="3" y1="15" x2="37" y2="5" stroke="#6d28d9" stroke-width="2"/></svg>
+            <span><b>Violet line</b>: a rewired shortcut (Watts–Strogatz)</span>
           </li>
         </ul>
         <p class="hint">Hover a node to see its connections.</p>

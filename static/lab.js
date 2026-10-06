@@ -204,6 +204,8 @@ const LAB_STYLE = [
     style: { width: 1, "line-color": EDGE_COLOR, opacity: 0.45, "curve-style": "haystack" },
   },
   { selector: "edge.highlighted", style: { "line-color": EDGE_FOCUS_COLOR, opacity: 0.9, width: 1.5 } },
+  // Watts–Strogatz shortcuts (see markShortcuts): the edges the model is about.
+  { selector: "edge.shortcut", style: { "line-color": ACCENT_COLOR, opacity: 0.8, width: 1.6 } },
   { selector: "node.faded", style: { opacity: 0.12 } },
   { selector: "edge.faded", style: { opacity: 0.04 } },
 ];
@@ -249,9 +251,26 @@ function drawGraph(data) {
     cy.container().style.cursor = "";
   });
 
+  markShortcuts(data.summary);
   // First placement without animation: sliding up to 500 nodes out of one
   // pile at (0, 0) adds nothing. Switching layouts later does animate.
   runLayout(layout, false);
+}
+
+/*
+ * Watts–Strogatz starts from a ring where node i links to the k/2 nodes on each
+ * side, then rewires some edges at random. So an edge between nodes more than
+ * k/2 places apart round the ring (going whichever way is shorter) must be a
+ * rewired shortcut. Colouring them shows the model's whole point at a glance.
+ */
+function markShortcuts(summary) {
+  if (summary.model !== "ws") return;
+  const n = summary.n;
+  const half = summary.k / 2;
+  cy.edges().forEach((edge) => {
+    const gap = Math.abs(Number(edge.source().id()) - Number(edge.target().id()));
+    edge.toggleClass("shortcut", Math.min(gap, n - gap) > half);   // distance round the ring
+  });
 }
 
 function setLayout(name) {
