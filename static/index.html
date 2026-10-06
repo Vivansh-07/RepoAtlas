@@ -83,6 +83,16 @@
       </div>
 
       <div class="card">
+        <p class="field-label">Level of detail</p>
+        <!-- data-level names the graph each button shows (see LEVELS in explorer.js) -->
+        <div class="segmented two" role="group" aria-label="Level of detail">
+          <button type="button" class="is-active" data-level="modules">Modules</button>
+          <button type="button" data-level="packages">Packages</button>
+        </div>
+        <p id="level-hint" class="hint">Each node is one Python file.</p>
+      </div>
+
+      <div class="card">
         <label class="field-label" for="module-search">Find a module</label>
         <!-- list="module-names" connects the box to the <datalist>: the browser
              suggests matching module names as you type -->
@@ -161,8 +171,9 @@
         <!-- <dl> = description list: pairs of a term (<dt>) and its value (<dd>).
              data-stat names the summary field from the API that fills each value. -->
         <dl class="stats">
-          <div class="stat"><dt>Modules</dt><dd data-stat="num_nodes">–</dd></div>
-          <div class="stat"><dt>Imports</dt><dd data-stat="num_edges">–</dd></div>
+          <!-- The ids let explorer.js rename these in the package view -->
+          <div class="stat"><dt id="nodes-label">Modules</dt><dd data-stat="num_nodes">–</dd></div>
+          <div class="stat"><dt id="edges-label">Imports</dt><dd data-stat="num_edges">–</dd></div>
           <div class="stat"><dt>Communities</dt><dd data-stat="num_communities">–</dd></div>
           <div class="stat" id="cycles-stat"><dt>Cycle groups</dt><dd data-stat="num_cycles">–</dd></div>
           <div class="stat"><dt>Dependency depth</dt><dd data-stat="dependency_depth">–</dd></div>
@@ -170,7 +181,7 @@
         </dl>
       </div>
       <div class="card">
-        <h2 class="card-title">Most important modules</h2>
+        <h2 class="card-title" id="top-title">Most important modules</h2>
         <ol id="top-modules" class="top-list">
           <li class="muted">Run an analysis to see them.</li>
         </ol>

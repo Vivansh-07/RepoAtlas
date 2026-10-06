@@ -299,6 +299,18 @@ code { font-family: ui-monospace, "Cascadia Code", Consolas, monospace; font-siz
 .facts { display: grid; grid-template-columns: auto 1fr; gap: 6px 12px; margin: 14px 0 0; font-size: 13px; }
 .facts dt { color: var(--muted); }
 .facts dd { margin: 0; overflow-wrap: anywhere; }
+/* A button that looks like a link (the module's package, in the details card) */
+.link-button {
+  padding: 0;
+  font: inherit;
+  text-align: left;
+  color: var(--accent);
+  background: none;
+  border: 0;
+  cursor: pointer;
+  overflow-wrap: anywhere;
+}
+.link-button:hover { color: var(--accent-hover); text-decoration: underline; }
 
 .neighbors-title { margin: 16px 0 6px; font-size: 12px; font-weight: 600; color: var(--muted); }
 .neighbor-list { max-height: 168px; overflow-y: auto; margin: 0; padding: 0; list-style: none; }
