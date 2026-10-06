@@ -7,7 +7,7 @@ import pytest
 
 from app.analytics import analyze
 from app.graph_builder import build_graph
-from app.packages import TOP_LEVEL, build_package_graph, group_modules, package_of
+from app.packages import TOP_LEVEL, build_package_graph, group_modules, package_of, short_label
 from app.parser import parse_repo
 from app.resolver import resolve_repo
 
@@ -25,6 +25,16 @@ SAMPLE = Path(__file__).parent / "fixtures" / "sample_repo"
 ])
 def test_package_of(module, is_package, path, expected):
     assert package_of(module, is_package, path) == expected
+
+
+@pytest.mark.parametrize("package, label", [
+    ("flask", "flask"),
+    ("flask.json", "json"),                       # like a module's label: the last part
+    ("examples/tutorial/tests/", "tests/"),
+    (TOP_LEVEL, TOP_LEVEL),
+])
+def test_short_label(package, label):
+    assert short_label(package) == label
 
 
 def test_top_level_modules_of_different_folders_stay_apart():

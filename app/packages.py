@@ -47,6 +47,16 @@ def _folder_name(folder: str) -> str:
     return f"{folder}/" if folder else TOP_LEVEL
 
 
+def short_label(package: str) -> str:
+    """The name drawn on the node, like a module's: 'flask.json' -> 'json',
+    'examples/tutorial/tests/' -> 'tests/'. The full name is in the details card."""
+    if package.endswith("/"):
+        return package[:-1].rpartition("/")[2] + "/"
+    if package == TOP_LEVEL:
+        return package
+    return package.rpartition(".")[2]
+
+
 def group_modules(modules: dict[str, tuple[str, str]]) -> dict[str, str]:
     """Module -> the name of its package node.
 
@@ -92,7 +102,7 @@ def build_package_graph(graph: nx.DiGraph) -> nx.DiGraph:
         if package not in packages:
             packages.add_node(
                 package,
-                label=package,
+                label=short_label(package),
                 package=package.rpartition(".")[0] if not package.endswith(("/", ")")) else "",
                 path=posixpath.dirname(data["path"]) or ".",    # the group's folder ("." = repo root)
                 loc=0, kind="internal", is_external=False, is_package=True, parse_error=None,

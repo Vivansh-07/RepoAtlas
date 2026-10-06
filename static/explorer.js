@@ -42,9 +42,30 @@ const showTypeOnly = document.getElementById("show-type-only");
 const showExternal = document.getElementById("show-external");
 const cyclesOnly = document.getElementById("cycles-only");
 const filterNote = document.getElementById("filter-note");
+const levelHint = document.getElementById("level-hint");
 // querySelectorAll inside `view` only, so we never grab the Graph Lab's controls.
 const exampleChips = view.querySelectorAll(".chip");
 const layoutButtons = view.querySelectorAll("[data-layout]");
+const levelButtons = view.querySelectorAll("[data-level]");
+
+/*
+ * The two levels of detail. Every analysis returns both graphs: the module
+ * graph, and the same graph collapsed into packages (app/packages.py). They
+ * have the same shape, so drawing, filters, layouts and the details card work
+ * on either; these are just the words that change.
+ */
+const LEVELS = {
+  modules: {
+    plural: "modules", title: "Modules", edgesTitle: "Imports",
+    noCycles: "This repository has no circular dependencies.",
+    hint: "Each node is one Python file.",
+  },
+  packages: {
+    plural: "packages", title: "Packages", edgesTitle: "Dependencies",
+    noCycles: "No packages depend on each other in a loop.",
+    hint: "Each node is a whole package. Imports inside a package disappear, leaving the architecture.",
+  },
+};
 
 const CYCLE_COLOR = "#e11d48";
 const EXTERNAL_COLOR = "#94a3b8";
@@ -52,9 +73,11 @@ const EXTERNAL_SIZE = 14;
 const MIN_NODE_SIZE = 18;
 const MAX_NODE_SIZE = 80;
 // Label culling: a node shows its name when it's at least this many pixels wide
-// on screen, and the top few modules ("landmarks") always do.
+// on screen, and the top few modules ("landmarks") always do. A small graph
+// (like most package views) has room to name every node.
 const LABEL_MIN_SCREEN_SIZE = 30;
 const LANDMARK_COUNT = 8;
+const LABEL_ALL_UP_TO = 25;
 
 // ============================================================
 // 2. State: what's on screen right now
@@ -62,9 +85,11 @@ const LANDMARK_COUNT = 8;
 // `let` because these change as the user works.
 let cy = null;              // the Cytoscape graph
 let lastData = null;        // the full answer of the last analysis, external libraries included
-let summary = null;         // summary of the last analysis
+let moduleById = new Map(); // module id -> its data, to list a package's modules
+let summary = null;         // summary of the graph on screen (module or package level)
 let currentRepo = null;     // "owner/name" of the graph on screen
 let selected = null;        // the clicked node, or null
+let currentLevel = "modules";
 let currentLayout = "force";
 let runningLayout = null;   // so a new layout can stop one still animating
 
@@ -110,17 +135,29 @@ layoutButtons.forEach((button) => {
   button.addEventListener("click", () => runLayout(button.dataset.layout));
 });
 
+levelButtons.forEach((button) => {
+  button.addEventListener("click", () => {
+    const level = button.dataset.level;
+    if (level === currentLevel) return;
+    // A selected module stays in view: going up selects the package that holds it.
+    const holder = selected && level === "packages" ? selected.data("package_node") : null;
+    if (holder) drillTo("packages", holder);
+    else setLevel(level);
+  });
+});
+
 fitButton.addEventListener("click", () => {
   if (cy) cy.animate({ fit: { eles: cy.elements(), padding: 30 } }, { duration: 400 });
 });
 
-// e.g. repoatlas-pallets-flask-hierarchy.png
+// e.g. repoatlas-pallets-flask-hierarchy.png, repoatlas-pallets-flask-packages-force.png
 document.getElementById("png-button").addEventListener("click", () => {
   if (!cy || cy.nodes().empty()) {
     showStatus("Analyse a repository first, then save the picture.", true);
     return;
   }
-  downloadPng(cy, `repoatlas-${currentRepo.replace("/", "-")}-${currentLayout}.png`);
+  const level = currentLevel === "packages" ? "packages-" : "";
+  downloadPng(cy, `repoatlas-${currentRepo.replace("/", "-")}-${level}${currentLayout}.png`);
 });
 
 // Escape closes the details card.
@@ -139,14 +176,13 @@ async function analyze(repoUrl) {
   try {
     const data = await fetchAnalysis(repoUrl);
     lastData = data;
-    summary = data.summary;
     currentRepo = data.repo;
     // Sizes and colours are worked out once, from the whole repo, so the Show
     // options can hide nodes without ever resizing the ones that stay.
     prepareNodes(data.nodes);
-    redraw();
-    updateAddressBar();
-    showSummary(data.summary);
+    prepareNodes(data.packages.nodes);
+    linkLevels(data);
+    setLevel(currentLevel);            // draw the graph, summary and link at the current level
     const source = data.cached ? "from cache" : "freshly analysed";
     showStatus(`${data.repo} @ ${data.commit_sha.slice(0, 7)} · ${source}`);
   } catch (error) {
@@ -443,16 +479,68 @@ function runLayout(name) {
 
 
 // ============================================================
-// 8. Draw the graph and wire up interactions
+// 8. Levels of detail: modules or packages
+// ============================================================
+// The graph of the current level: the answer itself, or its `packages` part.
+// Both look like {summary, nodes, edges}.
+function graphData() {
+  return currentLevel === "packages" ? lastData.packages : lastData;
+}
+
+function setLevel(name) {
+  currentLevel = name;
+  levelButtons.forEach((button) => button.classList.toggle("is-active", button.dataset.level === name));
+  levelHint.textContent = LEVELS[name].hint;
+  if (!lastData) return;               // e.g. set from a share link before the analysis arrives
+  summary = graphData().summary;
+  redraw();
+  showSummary(summary);
+  updateAddressBar();
+}
+
+/*
+ * Tie the two levels together: each module remembers the package node it was
+ * collapsed into (`package_node`), so the details card can link up a level,
+ * and `moduleById` lets a package list its modules, most important first.
+ */
+function linkLevels(data) {
+  // new Map([[key, value], ...]) builds a lookup table from a list of pairs.
+  moduleById = new Map(data.nodes.map((n) => [n.data.id, n.data]));
+  for (const pkg of data.packages.nodes) {
+    for (const id of pkg.data.modules) moduleById.get(id).package_node = pkg.data.id;
+  }
+}
+
+/*
+ * Switch level and select a node there: down from a package to one of its
+ * modules, or up from a module to its package. The new level's layout is still
+ * animating, so the camera glides over once it has finished ("layoutstop").
+ */
+function drillTo(level, id) {
+  setLevel(level);
+  const node = cy.getElementById(id);
+  if (node.empty()) {                  // hidden by "Only circular dependencies"
+    searchHint.textContent = `${id} is hidden by the Show options below.`;
+    return;
+  }
+  searchHint.textContent = "";
+  select(node);
+  cy.one("layoutstop", () => selectAndCenter(id));   // .one = run once, then forget
+}
+
+
+// ============================================================
+// 9. Draw the graph and wire up interactions
 // ============================================================
 // The elements the "Show" options let through, as fresh copies for Cytoscape.
 function visibleElements() {
-  let nodes = lastData.nodes;
+  const all = graphData();
+  let nodes = all.nodes;
   if (!showExternal.checked) nodes = nodes.filter((n) => !n.data.is_external);
   if (cyclesOnly.checked) nodes = nodes.filter((n) => n.data.in_cycle);
   // A Set answers "is this id in here?" instantly, however many nodes there are.
   const kept = new Set(nodes.map((n) => n.data.id));
-  const edges = lastData.edges.filter((e) =>
+  const edges = all.edges.filter((e) =>
     kept.has(e.data.source) && kept.has(e.data.target) && (showTypeOnly.checked || !e.data.type_only));
   // {...x} makes a shallow copy, so Cytoscape never holds on to our master data.
   return {
@@ -468,17 +556,20 @@ function redraw() {
   updateFilterNote(elements);
 }
 
-// "Showing 13 of 82 modules" whenever a Show option hides something.
+// A note on the canvas: "Showing 13 of 82 modules" whenever a Show option hides
+// something, and in the package view how many modules the packages hold.
 function updateFilterNote(elements) {
-  const total = lastData.nodes.filter((n) => !n.data.is_external).length;
+  const { plural, noCycles } = LEVELS[currentLevel];   // pulls two fields out of the object
+  const total = graphData().nodes.filter((n) => !n.data.is_external).length;
   const shown = elements.nodes.filter((n) => !n.data.is_external).length;
   const externals = elements.nodes.length - shown;
-  let note = "";
-  if (cyclesOnly.checked && shown === 0) note = "This repository has no circular dependencies.";
-  else if (shown < total) note = `Showing ${shown} of ${total} modules (only circular dependencies)`;
-  if (externals > 0) note += `${note ? " · " : ""}${externals} external libraries`;
-  filterNote.textContent = note;
-  filterNote.hidden = note === "";
+  const notes = [];
+  if (currentLevel === "packages") notes.push(`${lastData.summary.num_nodes} modules in ${total} packages`);
+  if (cyclesOnly.checked && shown === 0) notes.push(noCycles);
+  else if (shown < total) notes.push(`Showing ${shown} of ${total} ${plural} (only circular dependencies)`);
+  if (externals > 0) notes.push(`${externals} external libraries`);
+  filterNote.textContent = notes.join(" · ");
+  filterNote.hidden = notes.length === 0;
 }
 
 function drawGraph(elements) {
@@ -541,27 +632,37 @@ function updateSearchOptions() {
 }
 
 /*
- * Jump to a module by name: an exact match first, otherwise the most important
- * module whose name contains the text ("app" finds flask.app).
+ * Jump to a node by name. In the package view, a module's name finds the
+ * package that holds it ("flask.app is in the package flask").
  */
 function findModule(query) {
   const q = query.trim().toLowerCase();
   if (!q || !cy) return;
-  const exact = cy.nodes().filter((n) => n.id().toLowerCase() === q);
-  const best = exact.nonempty()
-    ? exact[0]
-    : cy.nodes().filter((n) => n.id().toLowerCase().includes(q))
-        .sort((a, b) => b.data("pagerank") - a.data("pagerank"))[0];
-  if (best) {
-    searchHint.textContent = "";
-    selectAndCenter(best.id());
+  searchHint.textContent = "";
+  const match = bestMatch(cy.nodes().map((n) => n.data()), q);
+  if (match) {
+    selectAndCenter(match.id);
+    return;
+  }
+  const module = bestMatch(lastData.nodes.map((n) => n.data), q);
+  const holder = module?.package_node;   // ?. = "undefined if module is undefined", instead of an error
+  if (currentLevel === "packages" && holder && cy.getElementById(holder).nonempty()) {
+    searchHint.textContent = `${module.id} is in the package ${holder}.`;
+    selectAndCenter(holder);
     return;
   }
   // Not on screen: is it hidden by a Show option, or not in the repo at all?
-  const hidden = lastData.nodes.some((n) => n.data.id.toLowerCase().includes(q));
+  const hidden = module || graphData().nodes.some((n) => n.data.id.toLowerCase().includes(q));
   searchHint.textContent = hidden
     ? `"${query.trim()}" is hidden by the Show options below.`
-    : `No module matches "${query.trim()}".`;
+    : `Nothing matches "${query.trim()}".`;
+}
+
+// Of a list of node data, the one named exactly q, otherwise the most
+// important one whose name contains q ("app" finds flask.app). undefined if none.
+function bestMatch(items, q) {
+  return items.find((d) => d.id.toLowerCase() === q)
+    ?? items.filter((d) => d.id.toLowerCase().includes(q)).sort((a, b) => b.pagerank - a.pagerank)[0];
 }
 
 // Focus + context on one module (or none), shared with the Graph Lab.
@@ -593,16 +694,18 @@ function selectAndCenter(id) {
  * Label culling, one of our fixes for the "hairball". Like a paper map, which
  * always names the capitals but only names villages when you zoom in:
  *  - the LANDMARK_COUNT most important modules are always named;
- *  - any other node is named once it's LABEL_MIN_SCREEN_SIZE pixels wide on screen.
+ *  - any other node is named once it's LABEL_MIN_SCREEN_SIZE pixels wide on screen;
+ *  - in a graph of at most LABEL_ALL_UP_TO nodes, every node is named.
  */
 function updateLabels() {
   const zoom = cy.zoom();
+  const labelAll = cy.nodes().length <= LABEL_ALL_UP_TO;
   cy.batch(() => {
     cy.nodes().forEach((node) => {
       const rank = node.data("pagerank_rank");          // null for external libraries
       const isLandmark = rank !== null && rank <= LANDMARK_COUNT;
       const bigOnScreen = node.data("size") * zoom >= LABEL_MIN_SCREEN_SIZE;
-      node.toggleClass("labelled", isLandmark || bigOnScreen);
+      node.toggleClass("labelled", labelAll || isLandmark || bigOnScreen);
     });
   });
 }
@@ -621,15 +724,16 @@ function scheduleLabelUpdate() {
 
 
 // ============================================================
-// 9. Module details card
+// 10. Details card (a module, a package or a library)
 // ============================================================
 function showDetails(node) {
   const d = node.data();
+  const isPackage = currentLevel === "packages" && !d.is_external;
 
   const dot = el("span", "dot");
   dot.style.background = d.color;
   const title = el("div", "details-title");
-  title.append(el("h2", "", d.label), el("p", "", d.id));
+  title.append(el("h2", "", d.label), el("p", "", d.id));     // short name, then the full one
   const close = el("button", "icon-button", "×");
   close.type = "button";
   close.setAttribute("aria-label", "Close details");
@@ -645,14 +749,34 @@ function showDetails(node) {
   if (d.is_external) {
     addFact(facts, "Kind", d.kind === "stdlib" ? "Standard library" : "Third-party library");
   } else {
-    addFact(facts, "Path", d.path);
+    addFact(facts, isPackage ? "Folder" : "Path", d.path);
+    if (isPackage) {
+      addFact(facts, "Modules", d.module_count);
+    } else {
+      // Up a level: a link to the package this module was collapsed into.
+      const up = el("button", "link-button", d.package_node);
+      up.type = "button";
+      up.title = "Show it in the package view";
+      up.addEventListener("click", () => drillTo("packages", d.package_node));
+      addFact(facts, "Package", up);
+    }
     addFact(facts, "Lines", d.loc.toLocaleString());          // 1234 -> "1,234"
     addFact(facts, "Importance", `#${d.pagerank_rank} of ${summary.num_nodes} · ${d.pagerank.toFixed(3)}`);
     addFact(facts, "Community", d.community === null ? "None (isolated)" : `#${d.community + 1}`);
   }
   parts.push(facts);
 
-  // Edge A -> B means "A imports B", so outgoing edges are what this module
+  // Down a level: the package's modules, most important first.
+  if (isPackage) {
+    const members = d.modules.map((id) => moduleById.get(id)).sort((a, b) => b.pagerank - a.pagerank);
+    parts.push(...nodeList("Modules", members.map((m) => ({
+      id: m.id,
+      tag: m.in_cycle ? "cycle" : "",
+      open: () => drillTo("modules", m.id),
+    }))));
+  }
+
+  // Edge A -> B means "A imports B", so outgoing edges are what this node
   // imports and incoming edges are who imports it.
   parts.push(...neighbourSection("Imports", node.outgoers("edge"), (edge) => edge.target()));
   parts.push(...neighbourSection("Imported by", node.incomers("edge"), (edge) => edge.source()));
@@ -666,36 +790,55 @@ function hideDetails() {
   detailsCard.replaceChildren();
 }
 
+// `value` can be text or an element (like the package link): append() takes both.
 function addFact(list, term, value) {
-  list.append(el("dt", "", term), el("dd", "", value));
+  const dd = el("dd");
+  dd.append(value);
+  list.append(el("dt", "", term), dd);
 }
 
-// A heading plus a clickable list of neighbouring modules, most important first.
+// The neighbours at the other end of `edges`, most important first.
 // `otherEnd` is a function that picks the neighbour out of an edge.
 function neighbourSection(title, edges, otherEnd) {
-  const heading = el("p", "neighbors-title", `${title} (${edges.length})`);
-  const list = el("ul", "neighbor-list");
-  if (edges.empty()) list.append(el("li", "empty", "None"));
-
   const sorted = edges.toArray().sort((a, b) => otherEnd(b).data("pagerank") - otherEnd(a).data("pagerank"));
-  for (const edge of sorted) {
-    const other = otherEnd(edge);
+  return nodeList(title, sorted.map((edge) => ({
+    id: otherEnd(edge).id(),
+    tag: edgeTag(edge),
+    open: () => selectAndCenter(otherEnd(edge).id()),
+  })));
+}
+
+// "cycle", "type-only", and for a package link how many imports it stands for.
+function edgeTag(edge) {
+  const tags = [];
+  if (edge.data("in_cycle")) tags.push("cycle");
+  else if (edge.data("type_only")) tags.push("type-only");
+  if (currentLevel === "packages") tags.push(count(edge.data("weight"), "import"));
+  return tags.join(" · ");
+}
+
+// A heading plus a list of clickable names. items: [{id, tag, open}], where
+// `open` is the function to run when the name is clicked.
+function nodeList(title, items) {
+  const heading = el("p", "neighbors-title", `${title} (${items.length})`);
+  const list = el("ul", "neighbor-list");
+  if (items.length === 0) list.append(el("li", "empty", "None"));
+  for (const item of items) {
     const button = el("button");
     button.type = "button";
-    button.append(el("span", "", other.id()));
-    if (edge.data("in_cycle")) button.append(el("span", "tag", "cycle"));
-    else if (edge.data("type_only")) button.append(el("span", "tag", "type-only"));
-    button.addEventListener("click", () => selectAndCenter(other.id()));
-    const item = el("li");
-    item.append(button);
-    list.append(item);
+    button.append(el("span", "", item.id));
+    if (item.tag) button.append(el("span", "tag", item.tag));
+    button.addEventListener("click", item.open);
+    const li = el("li");
+    li.append(button);
+    list.append(li);
   }
   return [heading, list];
 }
 
 
 // ============================================================
-// 10. Summary panel
+// 11. Summary panel
 // ============================================================
 function showSummary(summary) {
   // Every <dd data-stat="..."> gets the summary field it names.
@@ -704,6 +847,10 @@ function showSummary(summary) {
     dd.textContent = Number.isInteger(value) ? value : value.toFixed(2);
   });
   document.getElementById("cycles-stat").classList.toggle("is-alert", summary.num_cycles > 0);
+  const level = LEVELS[currentLevel];
+  document.getElementById("nodes-label").textContent = level.title;
+  document.getElementById("edges-label").textContent = level.edgesTitle;
+  document.getElementById("top-title").textContent = `Most important ${level.plural}`;
   showTopModules(summary.top_modules);
 }
 
@@ -730,7 +877,7 @@ function showTopModules(topModules) {
 
 
 // ============================================================
-// 11. Small helpers (el() lives in common.js)
+// 12. Small helpers (el() lives in common.js)
 // ============================================================
 function setBusy(busy) {
   analyzeButton.disabled = busy;
@@ -743,9 +890,14 @@ function showStatus(message, isError = false) {
   statusText.classList.toggle("is-error", isError);
 }
 
+// count(1, "module") -> "1 module", count(5, "module") -> "5 modules"
+function count(n, word) {
+  return `${n} ${word}${n === 1 ? "" : "s"}`;
+}
+
 
 // ============================================================
-// 12. Shareable links: /?repo=pallets/flask&layout=hierarchy
+// 13. Shareable links: /?repo=pallets/flask&layout=hierarchy&level=packages
 // ============================================================
 // Keep the address bar in sync with what's on screen, so it can be copied and
 // shared. replaceState changes the URL without reloading the page. Only while
@@ -758,8 +910,9 @@ function updateAddressBar() {
     history.replaceState(null, "", "/");
     return;
   }
-  // Show options are only added when they differ from the defaults.
+  // The level and Show options are only added when they differ from the defaults.
   let link = `?repo=${currentRepo}&layout=${currentLayout}`;
+  if (currentLevel === "packages") link += "&level=packages";
   if (showExternal.checked) link += "&external=1";
   if (!showTypeOnly.checked) link += "&typeonly=0";
   if (cyclesOnly.checked) link += "&cycles=1";
@@ -771,7 +924,9 @@ function updateAddressBar() {
 // uses LAYOUTS and the functions defined above.
 const linkParams = new URLSearchParams(window.location.search);
 if (linkParams.get("repo")) {
-  if (linkParams.get("layout") in LAYOUTS) runLayout(linkParams.get("layout"));
+  // Object.hasOwn, not `in`: `"constructor" in LAYOUTS` is true for every object.
+  if (Object.hasOwn(LAYOUTS, linkParams.get("layout"))) runLayout(linkParams.get("layout"));
+  if (Object.hasOwn(LEVELS, linkParams.get("level"))) setLevel(linkParams.get("level"));
   showExternal.checked = linkParams.get("external") === "1";
   showTypeOnly.checked = linkParams.get("typeonly") !== "0";
   cyclesOnly.checked = linkParams.get("cycles") === "1";
@@ -782,7 +937,7 @@ if (linkParams.get("repo")) {
 
 
 // ============================================================
-// 13. What app.js (the tab switcher) can use
+// 14. What app.js (the tab switcher) can use
 // ============================================================
 // Called when this tab becomes visible. A Cytoscape graph that was hidden
 // doesn't notice size changes, so tell it to re-measure its container.
