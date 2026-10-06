@@ -88,7 +88,7 @@ A few things these maps reveal:
 ## How it works
 
 ```mermaid
-flowchart LR
+flowchart TB
     B["Browser<br/>vanilla JS · Cytoscape.js · Chart.js"] -->|"POST /api/analyze"| P
     B -->|"GET /api/generate"| GEN
     subgraph S["FastAPI backend"]
