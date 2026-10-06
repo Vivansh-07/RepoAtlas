@@ -83,6 +83,19 @@ def test_analyze_returns_a_cytoscape_graph(client, clones):
     assert body["summary"]["top_modules"][0] == {"id": "shop.utils", "pagerank": pytest.approx(0.2591, abs=1e-3)}
 
 
+def test_analyze_includes_the_package_graph(client, clones):
+    body = analyze(client).json()
+    packages = body["packages"]
+    ids = {n["data"]["id"] for n in packages["nodes"]}
+    assert ids == {"shop", "shop.api", "tests", "(top level)"}      # externals filtered out
+    shop = next(n["data"] for n in packages["nodes"] if n["data"]["id"] == "shop")
+    assert shop["module_count"] == 5 and "shop.orders" in shop["modules"]
+    assert packages["summary"]["num_nodes"] == 4
+
+    with_external = analyze(client, include_external=True).json()["packages"]
+    assert "requests" in {n["data"]["id"] for n in with_external["nodes"]}
+
+
 def test_second_request_is_served_from_cache(client, clones):
     first = analyze(client).json()
     second = analyze(client).json()

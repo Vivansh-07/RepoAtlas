@@ -8,7 +8,7 @@ STATIC_DIR = BASE_DIR / "static"
 
 # Part of the cache key. Bump it whenever the analysis output changes, so results
 # cached by older code are ignored instead of served.
-ANALYSIS_VERSION = 1
+ANALYSIS_VERSION = 2              # 2: results include the package-level graph
 
 # git network calls
 LS_REMOTE_TIMEOUT_S = 15

@@ -14,6 +14,7 @@ from app.cache import Cache
 from app.cloner import clone_repo, get_head_sha, parse_repo_url, read_local_sha
 from app.errors import ServerBusy
 from app.graph_builder import build_graph
+from app.packages import build_package_graph
 from app.parser import ParsedRepo, parse_repo
 from app.resolver import resolve_repo
 from app.serializer import serialize_graph, without_external
@@ -25,10 +26,22 @@ _analysis_slots = threading.BoundedSemaphore(config.MAX_CONCURRENT_ANALYSES)
 
 
 def analyze_parsed(parsed: ParsedRepo) -> dict:
-    """Resolve -> build graph -> analytics -> JSON. Externals are always included."""
+    """Resolve -> build graph -> analytics -> JSON, for modules and for packages.
+    Externals are always included."""
     graph = build_graph(parsed, resolve_repo(parsed))
     summary = analyze(graph)
-    return {"summary": asdict(summary), **serialize_graph(graph)}
+    packages = build_package_graph(graph)
+    package_summary = analyze(packages)      # the same analytics, one level up
+    return {
+        "summary": asdict(summary),
+        **serialize_graph(graph),
+        "packages": {"summary": asdict(package_summary), **serialize_graph(packages)},
+    }
+
+
+def _visible(elements: dict, include_external: bool) -> dict:
+    elements = {"nodes": elements["nodes"], "edges": elements["edges"]}
+    return elements if include_external else without_external(elements)
 
 
 def analyze_github_repo(repo_url: str, cache: Cache, include_external: bool = False) -> dict:
@@ -56,8 +69,10 @@ def analyze_github_repo(repo_url: str, cache: Cache, include_external: bool = Fa
             _analysis_slots.release()   # always give the slot back, even after an error
         cache.put(repo.slug, sha, payload)
 
-    elements = {"nodes": payload["nodes"], "edges": payload["edges"]}
-    if not include_external:
-        elements = without_external(elements)
-    return {"repo": repo.slug, "commit_sha": sha, "cached": cached,
-            "summary": payload["summary"], **elements}
+    packages = payload["packages"]
+    return {
+        "repo": repo.slug, "commit_sha": sha, "cached": cached,
+        "summary": payload["summary"],
+        **_visible(payload, include_external),
+        "packages": {"summary": packages["summary"], **_visible(packages, include_external)},
+    }
