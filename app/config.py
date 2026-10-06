@@ -13,6 +13,9 @@ ANALYSIS_VERSION = 4              # 2: + package graph; 3: packages grouped by f
 # git network calls
 LS_REMOTE_TIMEOUT_S = 15
 CLONE_TIMEOUT_S = 60
+# How long the answer of `git ls-remote` (a repo's latest commit) is reused. A
+# push is noticed at most this late; in exchange, repeat visits skip a ~1 s call.
+HEAD_SHA_TTL_S = 60
 
 # At most this many analyses clone + parse at the same time (a free hosting plan
 # has ~512 MB of RAM). Others wait up to ANALYSIS_WAIT_S, then get a 503.

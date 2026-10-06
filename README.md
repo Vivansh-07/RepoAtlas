@@ -113,7 +113,7 @@ flowchart TB
 ```
 
 1. **Validate** the URL strictly, then ask GitHub for the latest commit with `git ls-remote`, without downloading anything.
-2. **Cache check** on (repo, commit, analysis version). A repeat request skips everything below: about 1 s instead of about 5 s.
+2. **Cache check** on (repo, commit, analysis version). A repeat request skips everything below: about 1.5 s instead of about 5 s. The latest commit is remembered for a minute, so a repeat visit within that minute takes about 0.02 s.
 3. **Shallow clone** into a temporary folder, deleted afterwards whatever happens.
 4. **Parse** every `.py` file with Python's `ast`. The code is read as data and never run.
 5. **Resolve** each import: longest matching module, relative imports, the script-folder rule, stdlib versus third-party.
@@ -135,6 +135,8 @@ flowchart TB
 | Cache key = repo + commit + analysis version | A commit is an exact snapshot, so its analysis never changes; the version invalidates old results when the analysis logic changes | Time-based expiry (stale or wasteful) |
 | Git with credential helpers disabled | Private repos fail fast as 404 instead of hanging on a login prompt, and the server never uses saved credentials | Relying on the timeout |
 | At most 2 analyses at once, then 503 | A free instance has about 512 MB of RAM; cache hits bypass the limit | Unlimited (crashes under a burst) |
+| Remember each repo's latest commit for 60 s | The GitHub round trip was most of a cache hit (1.5 s → 0.02 s). A push shows up at most a minute late. | Asking GitHub on every request |
+| One lock per repository (64 locks shared by hash), with the cache checked again inside it | Two people opening the same new repository trigger one clone, not two. The second waits, then hits the cache. Memory stays fixed however many repos are seen. | One global lock (unrelated repos would queue); a lock per repo name (grows forever) |
 | Vanilla JS as ES modules, CDN libraries pinned with integrity hashes | No build step; tampered CDN files are refused by the browser | React plus a bundler |
 
 ## API
@@ -165,11 +167,11 @@ Requires Python 3.11+ and `git` on your PATH. `requirements.txt` is the runtime 
 
 ## Testing and CI
 
-**157 tests** (pytest). They cover:
+**160 tests** (pytest). They cover:
 - URL validation, including injection attempts
 - path → module naming on real layouts (src/, nested projects, name clashes)
 - every import-resolution rule, plus a fake repository with a known graph and one cycle
-- analytics, the package graph (grouping rules, a cycle between packages without any cycle between modules), the cache and the API (offline, with GitHub faked)
+- analytics, the package graph (grouping rules, a cycle between packages without any cycle between modules), the cache and the API (offline, with GitHub faked), including two simultaneous requests cloning only once
 
 Several Graph Lab tests check **graph theory** rather than shape: ring-lattice clustering = 3(k−2)/(4(k−1)), the small-world drop in path length, Barabási–Albert hubs versus Erdős–Rényi, and exact edge counts.
 

@@ -2,6 +2,7 @@
 the sample repo, so we test real HTTP behaviour (status codes, JSON, caching)."""
 
 import threading
+import time
 from contextlib import contextmanager
 from pathlib import Path
 
@@ -16,6 +17,13 @@ from app.main import app, get_cache
 SAMPLE = Path(__file__).parent / "fixtures" / "sample_repo"
 FAKE_SHA = "a" * 40
 URL = "https://github.com/acme/shop"
+
+
+@pytest.fixture(autouse=True)
+def forget_latest_commits():
+    # The pipeline remembers each repo's latest commit for a minute; every test
+    # starts without those memories, so each one's fake GitHub is really asked.
+    pipeline._head_shas.clear()
 
 
 @pytest.fixture
@@ -102,6 +110,63 @@ def test_second_request_is_served_from_cache(client, clones):
     assert (first["cached"], second["cached"]) == (False, True)
     assert clones == ["acme/shop"]                 # cloned only once
     assert second["nodes"] == first["nodes"]
+
+
+def test_latest_commit_is_remembered_for_a_while(client, clones, monkeypatch):
+    asked = []
+    monkeypatch.setattr(pipeline, "get_head_sha", lambda repo: asked.append(repo.slug) or FAKE_SHA)
+    analyze(client)
+    assert analyze(client).json()["cached"]
+    assert asked == ["acme/shop"]                  # the repeat request didn't even ask GitHub
+
+    monkeypatch.setattr(config, "HEAD_SHA_TTL_S", 0)   # now every answer is already stale
+    analyze(client)
+    assert asked == ["acme/shop", "acme/shop"]
+
+
+def test_cloned_commit_replaces_the_remembered_one(client, clones, monkeypatch):
+    # Someone pushed between `ls-remote` and the clone: the next request must
+    # look for the commit that was actually analysed (and find it cached).
+    monkeypatch.setattr(pipeline, "read_local_sha", lambda path: "b" * 40)
+    assert analyze(client).json()["commit_sha"] == "b" * 40
+    second = analyze(client).json()
+    assert (second["commit_sha"], second["cached"]) == ("b" * 40, True)
+    assert clones == ["acme/shop"]
+
+
+def test_simultaneous_requests_for_one_repo_clone_it_once(tmp_path, monkeypatch):
+    cache = Cache(tmp_path / "cache.db")
+    cloning = threading.Event()
+    finish = threading.Event()
+    calls = []
+
+    @contextmanager
+    def slow_clone(repo):
+        calls.append(repo.slug)
+        cloning.set()
+        finish.wait(5)                    # hold the first clone open...
+        yield SAMPLE
+
+    monkeypatch.setattr(pipeline, "get_head_sha", lambda repo: FAKE_SHA)
+    monkeypatch.setattr(pipeline, "read_local_sha", lambda path: FAKE_SHA)
+    monkeypatch.setattr(pipeline, "clone_repo", slow_clone)
+
+    results = []
+    def request():
+        results.append(pipeline.analyze_github_repo(URL, cache))
+
+    first = threading.Thread(target=request)
+    first.start()
+    assert cloning.wait(5)
+    second = threading.Thread(target=request)  # ...while a second request for the same repo arrives
+    second.start()
+    time.sleep(0.2)                           # without the lock it would start a second clone now
+    finish.set()
+    first.join(5)
+    second.join(5)
+
+    assert calls == ["acme/shop"]
+    assert sorted(r["cached"] for r in results) == [False, True]   # the second waited, then hit the cache
 
 
 def test_include_external(client, clones):
