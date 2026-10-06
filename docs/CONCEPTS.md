@@ -17,9 +17,10 @@ A repository becomes a **directed, weighted, attributed graph** G = (V, E):
 
 **Why this edge direction.** Arrows point from the dependent module to its dependency, so importance flows *towards* the modules everything relies on. PageRank then ranks foundations highly without any extra work.
 
-**Two derived graphs** do the analytical work:
+**Three derived graphs** do the analytical work:
 - the **analysis view**: repo modules only, runtime imports only (no type-only edges, no external libraries)
 - the **condensation**: every strongly connected component collapsed into one node, which makes the graph acyclic (section 7)
+- the **package graph**: every package collapsed into one node, which can still contain cycles: cycles *between packages* (section 7.1)
 
 ---
 
@@ -80,8 +81,8 @@ Real repositories give 35–150 nodes and 100–450 edges, enough to produce a "
 |---|---|
 | **Filtering** | External libraries hidden by default (Flask: 146 → 82 nodes); type-only imports toggle; "only circular dependencies" (Flask: 82 → 13 nodes) |
 | **Focus + context** | Hovering keeps a module's closed neighbourhood sharp and fades everything else to 12% opacity |
-| **Label culling** | The 8 highest-PageRank modules ("landmarks") are always named; any other node only once it is ≥ 30 px on screen, recomputed on zoom |
-| **Aggregation** | Cycle groups collapsed into one layer unit in the layered layout; *future:* packages collapsed into compound nodes |
+| **Label culling** | The 8 highest-PageRank modules ("landmarks") are always named; any other node only once it is ≥ 30 px on screen, recomputed on zoom. Graphs of at most 25 nodes name everything. |
+| **Aggregation** | **Package view**: modules collapsed into packages (Flask: 82 → 20 nodes, 162 → 24 edges; section 7.1). Cycle groups are also collapsed into one layer unit in the layered layout. |
 | **Semantic layouts** | Layered and concentric layouts give positions a meaning, so the eye knows where to look |
 | **Search** | Type part of a name and the camera flies to the best match |
 
@@ -90,8 +91,8 @@ Real repositories give 35–150 nodes and 100–450 edges, enough to produce a "
 
 | Task | RepoAtlas |
 |---|---|
-| **Overview** | Fit-to-screen graph, summary panel, top-10 list |
-| **Zoom** | Mouse-wheel zoom with progressive labels; search flies to a module |
+| **Overview** | Fit-to-screen graph, summary panel, top-10 list; the package view as an overview of the architecture |
+| **Zoom** | Mouse-wheel zoom with progressive labels; search flies to a module; drill down from a package to its modules |
 | **Filter** | Show options (external, type-only, cycles only) |
 | **Details on demand** | Click a module: path, lines, rank, community |
 | **Relate** | Details card lists *imports* and *imported by*; click to follow |
@@ -141,6 +142,28 @@ Collapsing each SCC into one node gives the **condensation**, which is always a 
 
 **A key finding.** Counting `if TYPE_CHECKING:` imports as normal edges inflated the cycles dramatically: Flask [20, 2] → [11, 2], requests [8] → none, httpx [11, 6] → [2]. Type-only imports never run, so they can't create a circular-import problem. They are therefore drawn dashed and excluded from all analytics.
 
+### 7.1 Quotient graphs: the package view
+
+Given a partition of the nodes into blocks, the **quotient graph** has one node per block and an edge from block P to block Q whenever some edge goes from a node in P to a node in Q. The condensation is the quotient under the "same SCC" partition. The package view is the quotient under the **"same package"** partition: a package is a folder, so modules are grouped by folder. Edge weights add up, and an edge is type-only only if every import behind it is.
+
+The same analytics then run on the smaller graph: PageRank, Louvain, SCCs and depth. Two properties make package cycles worth computing separately:
+- **A cycle inside one package disappears.** Its modules become one node. In the test fixture, the `orders ↔ payments` cycle lives inside `shop`, so the package graph has no cycle.
+- **A cycle between packages can appear without any cycle between modules.** For example, `a.x → b.y` and `b.z → a.w`: no module reaches itself, but packages `a` and `b` depend on each other. (A module cycle that crosses packages always shows up as a package cycle.)
+
+**Why it matters.** Packages are the units people own, test and release. The *Acyclic Dependencies Principle* (Martin 2002) says the package graph should be a DAG: packages in a loop can only be understood, changed or released together.
+
+**Observed:**
+- Flask: 82 modules → 20 packages. One package cycle remains: `flask` ↔ `flask.json` ↔ `flask.sansio`.
+- httpx: 60 → 5 packages, with `httpx` ↔ `httpx._transports`.
+- requests (35 → 4) and click (90 → 17) have no package cycles.
+
+**Why a separate graph rather than compound nodes.** Cytoscape can draw modules inside package boxes ("compound nodes"). That shows the same grouping, but it has three drawbacks:
+- it gives no package-level analytics
+- it stays as crowded as the module graph
+- the layered, concentric and circle layouts don't support parent boxes
+
+The quotient graph is computed once on the server, cached with the module graph, and drawn with the same code.
+
 ---
 
 ## 8. Random graph models (Graph Lab)
@@ -177,6 +200,7 @@ The Graph Lab generates the three classic models and measures them, so their def
 | Selection + linked views | Click a module: the details card and the graph stay in sync; click a neighbour in the card to move there |
 | Dynamic queries | Show options re-filter instantly in the browser |
 | Semantic zoom (labels) | Labels appear as nodes grow on screen |
+| Drill-down between levels | Package view ↔ module view: a package's card lists its modules (click to drill down); a module's card links up to its package |
 | Camera animation | Search and the top-modules list fly to the module |
 
 ---
@@ -186,7 +210,7 @@ The Graph Lab generates the three classic models and measures them, so their def
 - **Static analysis:** dynamic imports aren't seen, and conditional imports count even if they only run on one platform (click's `_compat ↔ _winconsole` cycle exists only on Windows).
 - **Force layouts aren't deterministic.** Positions shouldn't be read as data.
 - **Colours are labels.** Community 0 in two repositories are unrelated groups.
-- **Scale.** Beyond a few hundred modules, compound-node aggregation (future work) would be needed.
+- **Scale.** Beyond a few hundred modules the module view gets crowded. The package view is the overview at that scale, but a very large package can still be a crowded drill-down.
 
 ---
 
@@ -198,6 +222,7 @@ The Graph Lab generates the three classic models and measures them, so their def
 - Erdős, P. & Rényi, A. (1959). On random graphs I. *Publicationes Mathematicae*.
 - Fruchterman, T. M. J. & Reingold, E. M. (1991). Graph drawing by force-directed placement. *Software: Practice and Experience* 21(11).
 - Mackinlay, J. (1986). Automating the design of graphical presentations of relational information. *ACM Transactions on Graphics* 5(2).
+- Martin, R. C. (2002). *Agile Software Development: Principles, Patterns, and Practices*. Prentice Hall. (Acyclic Dependencies Principle.)
 - Newman, M. E. J. (2006). Modularity and community structure in networks. *PNAS* 103(23).
 - Page, L., Brin, S., Motwani, R. & Winograd, T. (1999). The PageRank citation ranking: Bringing order to the web. Stanford InfoLab.
 - Shneiderman, B. (1996). The eyes have it: A task by data type taxonomy for information visualizations. *IEEE Symposium on Visual Languages*.

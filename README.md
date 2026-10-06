@@ -30,6 +30,9 @@ It's for developers joining an unfamiliar codebase, tech leads planning a refact
   - colour = cluster (Louvain communities)
   - red halo = circular dependency (strongly connected components)
   - dashed arrow = type-only import (`if TYPE_CHECKING:`)
+- **Two levels of detail: Modules or Packages.**
+  - The package view collapses modules into packages: Flask's 82 modules become 20 packages, with their own PageRank, communities and **package-level cycles**.
+  - Click a package to list its modules, then click one to drill down. From a module, its package link goes back up.
 - **Four layouts**, each answering a question:
   - **Force:** what belongs together?
   - **Hierarchy:** what builds on what? (a layered layout written for this project)
@@ -42,7 +45,7 @@ It's for developers joining an unfamiliar codebase, tech leads planning a refact
   - zoom, with labels appearing as nodes grow on screen
 - **Show options:** external libraries, type-only imports, only circular dependencies. These are instant, because filtering happens in the browser.
 - **Summary panel:** modules, imports, communities, cycle groups, dependency depth, modularity, and the 10 most important modules.
-- **Shareable links** (`/?repo=pallets/flask&layout=hierarchy&cycles=1`) and **PNG export** of the current view.
+- **Shareable links** (`/?repo=pallets/flask&layout=hierarchy&level=packages`) and **PNG export** of the current view.
 
 ### Graph Lab
 - Generate **Erdős–Rényi**, **Barabási–Albert** and **Watts–Strogatz** random graphs with sliders and a seed, so any graph can be reproduced.
@@ -56,6 +59,8 @@ It's for developers joining an unfamiliar codebase, tech leads planning a refact
 | **Click a module:** details, imports and imported-by, with its neighbourhood in focus. | **Hierarchy:** tests on top, foundations at the bottom, each cycle group on one red row (pallets/click). |
 | ![Only the circular dependencies of Flask](docs/images/explorer-cycles.png) | ![Watts–Strogatz graph in the Circle layout with violet shortcuts](docs/images/lab-ws.png) |
 | **Only circular dependencies:** Flask's 11-module core loop and an example app's 2-module loop. | **Graph Lab:** a Watts–Strogatz small world, a ring plus a few random shortcuts. |
+| ![Flask's package view with the flask package's card listing its modules](docs/images/explorer-packages.png) | ![The module view after drilling down to flask.sansio.app](docs/images/explorer-drilldown.png) |
+| **Packages:** Flask's 82 modules as 20 packages. The red loop is `flask` ↔ `json` ↔ `sansio`. A package's card lists its modules. | **Drill down:** a module picked from that list opens in the module view, with a link back up to its package. |
 
 ## Reading the map
 
@@ -69,6 +74,7 @@ It's for developers joining an unfamiliar codebase, tech leads planning a refact
 | Grey | No imports to or from the rest of the repo |
 | Dashed arrow | Type-only import: it never runs, so it can't cause a circular-import error |
 | Dashed grey circle | External library (shown on request) |
+| *Package view:* a circle | A whole package (or a folder of loose files); an arrow stands for all the imports between two packages |
 
 ## What it finds in real code
 
@@ -84,6 +90,7 @@ A few things these maps reveal:
 - **The biggest file isn't the most important.** `flask.app` has 1,238 lines but ranks #27: five of its six importers use it only for type hints.
 - **A legacy shim became load-bearing.** requests' #1 module is `requests.compat`, a Python 2/3 compatibility layer still imported by 14 modules.
 - **Some cycles only exist on one platform.** click's `_compat ↔ _winconsole` loop only runs on Windows (`if sys.platform.startswith("win")`).
+- **Loops between packages.** At package level, Flask's 20 packages keep one loop: `flask` ↔ `flask.json` ↔ `flask.sansio`. httpx's 5 packages keep one too: `httpx` ↔ `httpx._transports`. Packages in a loop can't be split out or understood on their own. requests and click have none.
 
 ## How it works
 
@@ -97,7 +104,8 @@ flowchart TB
         PA --> RE["resolver<br/>internal / stdlib / third-party"]
         RE --> GB["graph_builder<br/>NetworkX DiGraph"]
         GB --> AN["analytics<br/>PageRank · Louvain · SCC · depth"]
-        AN --> SE["serializer<br/>Cytoscape JSON"]
+        AN --> PK["packages<br/>collapse into packages · same analytics"]
+        PK --> SE["serializer<br/>Cytoscape JSON"]
         GEN["generators<br/>ER · BA · WS + stats"]
     end
     P <--> DB[("SQLite cache<br/>repo · commit · version")]
@@ -110,7 +118,8 @@ flowchart TB
 4. **Parse** every `.py` file with Python's `ast`. The code is read as data and never run.
 5. **Resolve** each import: longest matching module, relative imports, the script-folder rule, stdlib versus third-party.
 6. **Build** a directed graph (A → B means "A imports B") and run the **analytics** on the repo's own runtime imports.
-7. **Serialize** to Cytoscape's `{"data": {...}}` format, so the browser draws it as-is.
+7. **Collapse** it into a package graph (one node per package folder; an edge sums every import between two packages) and run the same analytics on that.
+8. **Serialize** both to Cytoscape's `{"data": {...}}` format, so the browser draws them as-is.
 
 ## Design decisions
 
@@ -121,6 +130,7 @@ flowchart TB
 | Type-only imports as dashed edges, excluded from analytics | They never run. Counting them turned Flask's core into a fake 20-module cycle and gave requests an 8-module one that doesn't exist. | Dropping them (loses information) or counting them (fake cycles) |
 | Analytics on the repo's own modules only | `typing` would top every ranking, and toggling libraries must not change sizes or colours | Analysing whatever is visible |
 | Our own layered layout (simplified Sugiyama) | Cytoscape's breadth-first layout put 60 test modules on one row. Ours collapses cycle groups (condensation), assigns layers by longest path, orders by community and wraps rows. | `breadthfirst`; adding a dagre dependency |
+| Package view as a separate, collapsed graph (a quotient graph) | It gets its own analytics, including cycles *between packages*. It works with every layout, and the server computes it once and caches it. | Cytoscape compound nodes (modules drawn inside package boxes): no package-level analytics, and the layered, ring and circle layouts don't support them |
 | Circle area ∝ importance (square-root sizing) | Viewers judge circles by area | Linear diameter (exaggerates the top module) |
 | Cache key = repo + commit + analysis version | A commit is an exact snapshot, so its analysis never changes; the version invalidates old results when the analysis logic changes | Time-based expiry (stale or wasteful) |
 | Git with credential helpers disabled | Private repos fail fast as 404 instead of hanging on a login prompt, and the server never uses saved credentials | Relying on the timeout |
@@ -132,7 +142,7 @@ flowchart TB
 | Endpoint | Purpose |
 |---|---|
 | `GET /api/health` | `{"status": "ok"}` |
-| `POST /api/analyze` | Body `{"repo_url": "https://github.com/pallets/flask", "include_external": false}`. Returns the commit, a `cached` flag, the summary, and the nodes and edges in Cytoscape's format |
+| `POST /api/analyze` | Body `{"repo_url": "https://github.com/pallets/flask", "include_external": false}`. Returns the commit, a `cached` flag, the summary, the nodes and edges in Cytoscape's format, and `packages`: the same graph collapsed into packages, with its own summary |
 | `GET /api/generate?model=ba&n=200&m=2&seed=1` | Random graph (`er`: n, p · `ba`: n, m · `ws`: n, k, p). Returns the stats, the degree distribution, and the nodes and edges |
 
 Errors always look like `{"detail": "..."}`: 400 bad URL or parameters · 404 not found or private · 413 too many files · 422 no Python files · 502 git failed · 503 busy · 504 timed out. Interactive docs are at `/docs`.
@@ -155,11 +165,11 @@ Requires Python 3.11+ and `git` on your PATH. `requirements.txt` is the runtime 
 
 ## Testing and CI
 
-**135 tests** (pytest). They cover:
+**157 tests** (pytest). They cover:
 - URL validation, including injection attempts
 - path → module naming on real layouts (src/, nested projects, name clashes)
 - every import-resolution rule, plus a fake repository with a known graph and one cycle
-- analytics, the cache and the API (offline, with GitHub faked)
+- analytics, the package graph (grouping rules, a cycle between packages without any cycle between modules), the cache and the API (offline, with GitHub faked)
 
 Several Graph Lab tests check **graph theory** rather than shape: ring-lattice clustering = 3(k−2)/(4(k−1)), the small-world drop in path length, Barabási–Albert hubs versus Erdős–Rényi, and exact edge counts.
 
@@ -176,7 +186,6 @@ GitHub Actions runs two jobs on every push and pull request:
 
 ## Future work
 
-- Collapse packages into compound nodes for very large repositories
 - Compare two repositories, or two commits of one, side by side
 - Function-level call graphs
 - Stream real progress (Server-Sent Events) instead of estimated loading steps
