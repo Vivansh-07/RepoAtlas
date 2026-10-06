@@ -57,6 +57,23 @@ class CyEdge(BaseModel):
     data: EdgeData
 
 
+class PackageNodeData(NodeData):
+    """A package of the collapsed graph (or an external library, as in the module graph)."""
+    module_count: int = Field(description="Modules collapsed into this package (0 for libraries)")
+    modules: list[str] = Field(description="Their names, for drilling down")
+
+
+class PackageNode(BaseModel):
+    data: PackageNodeData
+
+
+class PackageGraph(BaseModel):
+    """Modules collapsed into packages: a much smaller graph, with its own analytics."""
+    summary: Summary
+    nodes: list[PackageNode]
+    edges: list[CyEdge]
+
+
 class GraphResponse(BaseModel):
     repo: str
     commit_sha: str
@@ -64,6 +81,7 @@ class GraphResponse(BaseModel):
     summary: Summary
     nodes: list[CyNode]
     edges: list[CyEdge]
+    packages: PackageGraph
 
 
 class ErrorResponse(BaseModel):
