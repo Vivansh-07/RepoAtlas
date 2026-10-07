@@ -78,6 +78,8 @@ const MAX_NODE_SIZE = 80;
 const LABEL_MIN_SCREEN_SIZE = 30;
 const LANDMARK_COUNT = 8;
 const LABEL_ALL_UP_TO = 25;
+const MAX_ZOOM = 3;          // how far the user can zoom in
+const FIT_MAX_ZOOM = 1.2;    // how far fitting the graph to the canvas may zoom in (see capFitZoom)
 
 // ============================================================
 // 2. State: what's on screen right now
@@ -147,7 +149,10 @@ levelButtons.forEach((button) => {
 });
 
 fitButton.addEventListener("click", () => {
-  if (cy) cy.animate({ fit: { eles: cy.elements(), padding: 30 } }, { duration: 400 });
+  if (!cy) return;
+  capFitZoom();
+  cy.animate({ fit: { eles: cy.elements(), padding: 30 } },
+             { duration: 400, complete: () => cy.maxZoom(MAX_ZOOM) });   // complete: runs when the animation ends
 });
 
 // e.g. repoatlas-pallets-flask-hierarchy.png, repoatlas-pallets-flask-packages-force.png
@@ -439,6 +444,12 @@ function layeredPositions() {
   });
 
   const perRow = Math.max(8, Math.ceil(Math.sqrt(cy.nodes().length) * 1.6));
+  // When every node is named (small graphs, see updateLabels), make room for the
+  // names too: a node takes the width of its circle or of its label, whichever is
+  // wider (about 7 px per character at our 12 px font), plus space for the text below it.
+  const labelAll = cy.nodes().length <= LABEL_ALL_UP_TO;
+  const widthOf = (node) => Math.max(node.data("size"), labelAll ? node.data("label").length * 7 : 0);
+  const labelRoom = labelAll ? 16 : 0;
   const positions = {};
   let y = 0;
   // Highest level first, so it's drawn at the top and arrows point downwards.
@@ -450,13 +461,13 @@ function layeredPositions() {
 
     for (let start = 0; start < nodes.length; start += perRow) {
       const row = nodes.slice(start, start + perRow);
-      const widths = row.map((node) => node.data("size") + 14);     // each node + a gap
+      const widths = row.map((node) => widthOf(node) + 14);         // each node + a gap
       let x = -widths.reduce((sum, w) => sum + w, 0) / 2;           // centre the row on x = 0
       row.forEach((node, i) => {
         positions[node.id()] = { x: x + widths[i] / 2, y };
         x += widths[i];
       });
-      y += Math.max(...row.map((node) => node.data("size"))) + 18;  // next row below the tallest node
+      y += Math.max(...row.map((node) => node.data("size"))) + 18 + labelRoom;  // next row below the tallest node
     }
     y += 36;                                                        // extra gap between levels
   }
@@ -474,7 +485,20 @@ function runLayout(name) {
   if (runningLayout) runningLayout.stop();   // don't let two layouts fight over positions
   // {...a, b: 1} copies every field of a, then adds/overrides b.
   runningLayout = cy.layout({ ...LAYOUTS[name].options(), animate: true, animationDuration: 600, padding: 30 });
+  capFitZoom();
+  runningLayout.one("layoutstop", () => cy.maxZoom(MAX_ZOOM));   // .one = run once, then forget
   runningLayout.run();
+}
+
+/*
+ * A layout (and the Fit button) zooms so the graph fills the canvas. For a small
+ * graph, like most package views, that would mean zooming right in: giant
+ * circles and giant overlapping labels. Cytoscape never zooms past maxZoom, even
+ * when fitting, so we lower it while the camera is placed and raise it again
+ * afterwards: the user can still zoom in to MAX_ZOOM by hand.
+ */
+function capFitZoom() {
+  cy.maxZoom(FIT_MAX_ZOOM);
 }
 
 
@@ -583,7 +607,7 @@ function drawGraph(elements) {
     elements,                    // already Cytoscape's {data: ...} format
     style: GRAPH_STYLE,
     minZoom: 0.1,
-    maxZoom: 3,
+    maxZoom: MAX_ZOOM,
     autounselectify: true,       // we track the clicked node ourselves (`selected`)
     boxSelectionEnabled: false,
   });
