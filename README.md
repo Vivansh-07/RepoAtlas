@@ -7,6 +7,8 @@
 
 **Paste a public GitHub repository and get an interactive map of how its Python modules depend on each other:** what's central, what clusters together, and where imports go round in circles.
 
+**Live demo: [repoatlas-iqbu.onrender.com](https://repoatlas-iqbu.onrender.com)** · try [Flask's package view](https://repoatlas-iqbu.onrender.com/?repo=pallets/flask&layout=force&level=packages) or the [Graph Lab](https://repoatlas-iqbu.onrender.com/?lab=ba&n=300&m=2&seed=4&layout=force). It runs on a free plan, so the first visit after a quiet spell takes 30–60 s to wake the server.
+
 ![RepoAtlas showing the pallets/flask repository](docs/images/explorer-flask.png)
 
 [![Deploy to Render](https://render.com/images/deploy-to-render-button.svg)](https://render.com/deploy?repo=https://github.com/Vivansh-07/RepoAtlas)
@@ -163,7 +165,7 @@ Requires Python 3.11+ and `git` on your PATH. `requirements.txt` is the runtime 
 
 **Docker:** `docker build -t repoatlas . && docker run -p 8000:8000 repoatlas`. The image is `python:3.13-slim` plus `git`, running as a non-root user.
 
-**Deploy:** `render.yaml` is a Render Blueprint (a free Docker web service with a health check and auto-deploy on push). Use the button above, or Render → New → Blueprint.
+**Deploy:** `render.yaml` is a Render Blueprint (a free Docker web service with a health check and auto-deploy on push). Use the button above, or Render → New → Blueprint. The live demo above is deployed exactly this way, and redeploys on every merge to `main`.
 
 ## Testing and CI
 
