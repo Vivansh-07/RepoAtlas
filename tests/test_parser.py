@@ -70,6 +70,62 @@ def test_nested_projects_get_their_own_root(tmp_path):
     }
 
 
+def make_repo(root, files):
+    for rel, text in files.items():
+        (root / rel).parent.mkdir(parents=True, exist_ok=True)
+        (root / rel).write_text(text)
+    return root
+
+
+@pytest.mark.parametrize("config_file, text", [
+    # SQLAlchemy and Ansible declare their code folder like this:
+    ("pyproject.toml", '[tool.setuptools.packages.find]\nwhere = ["lib"]\n'),
+    ("pyproject.toml", '[tool.setuptools]\npackage-dir = {"" = "lib"}\n'),
+    ("setup.cfg", "[options]\npackage_dir =\n    =lib\n"),
+])
+def test_declared_package_folder_is_a_source_root(tmp_path, config_file, text):
+    make_repo(tmp_path, {config_file: text, "lib/pkg/__init__.py": "", "lib/pkg/core.py": "",
+                         "tests/test_core.py": "import pkg.core\n"})
+    assert detect_source_roots(tmp_path) == [tmp_path / "lib", tmp_path]
+    assert set(parse_repo(tmp_path).modules) == {"pkg", "pkg.core", "tests.test_core"}
+
+
+def test_declared_folders_can_be_nested_and_several(tmp_path):
+    # Ansible: where = ["lib", "test/lib"]
+    make_repo(tmp_path, {"pyproject.toml": '[tool.setuptools.packages.find]\nwhere = ["lib", "test/lib"]\n',
+                         "lib/ansible/__init__.py": "", "test/lib/ansible_test/__init__.py": ""})
+    assert set(parse_repo(tmp_path).modules) == {"ansible", "ansible_test"}
+
+
+@pytest.mark.parametrize("text", [
+    "this is [not toml",                                              # broken file: ignored
+    '[tool.setuptools.packages.find]\nwhere = ["../outside"]\n',      # outside the repo: ignored
+    '[tool.setuptools.packages.find]\nwhere = "lib"\n',               # wrong type: ignored
+])
+def test_bad_declarations_are_ignored(tmp_path, text):
+    (tmp_path / "outside").mkdir()
+    repo = make_repo(tmp_path / "repo", {"pyproject.toml": text, "lib/pkg/__init__.py": ""})
+    assert detect_source_roots(repo) == [repo]
+    assert set(parse_repo(repo).modules) == {"lib.pkg"}
+
+
+def test_lib_without_a_declaration_is_an_ordinary_folder(tmp_path):
+    # `lib` is a generic name (often a folder of helper scripts), so unlike `src`
+    # it only becomes a source root when the project says so.
+    make_repo(tmp_path, {"lib/helpers.py": "", "run.py": "from lib import helpers\n"})
+    assert set(parse_repo(tmp_path).modules) == {"lib.helpers", "run"}
+
+
+def test_imports_of_a_declared_package_resolve_internally(tmp_path):
+    from app.resolver import resolve_repo
+    make_repo(tmp_path, {"pyproject.toml": '[tool.setuptools.packages.find]\nwhere = ["lib"]\n',
+                         "lib/pkg/__init__.py": "", "lib/pkg/core.py": "",
+                         "tests/test_core.py": "import pkg.core\nimport pytest\n"})
+    edges = {(e.source, e.target, e.kind) for e in resolve_repo(parse_repo(tmp_path))}
+    assert ("tests.test_core", "pkg.core", "internal") in edges      # not a third-party "pkg"
+    assert ("tests.test_core", "pytest", "third_party") in edges
+
+
 # --- file discovery ---------------------------------------------------------
 
 def test_discovery_skips_build_and_hidden_dirs():
@@ -77,6 +133,11 @@ def test_discovery_skips_build_and_hidden_dirs():
     assert "build/generated.py" not in rel
     assert ".github/release.py" not in rel
     assert "src/shop/models.py" in rel
+
+
+def test_documentation_example_folders_are_skipped(tmp_path):
+    make_repo(tmp_path, {"docs_src/tutorial001.py": "", "docs/conf.py": "", "app.py": ""})
+    assert [p.name for p in find_python_files(tmp_path)] == ["app.py"]
 
 
 def test_too_many_files_raises(monkeypatch):

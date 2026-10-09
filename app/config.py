@@ -8,7 +8,7 @@ STATIC_DIR = BASE_DIR / "static"
 
 # Part of the cache key. Bump it whenever the analysis output changes, so results
 # cached by older code are ignored instead of served.
-ANALYSIS_VERSION = 4              # 2: + package graph; 3: packages grouped by folder; 4: short package labels
+ANALYSIS_VERSION = 5              # 2: + package graph; 3: packages by folder; 4: short labels; 5: declared roots, docs_src
 
 # git network calls
 LS_REMOTE_TIMEOUT_S = 15
@@ -34,4 +34,5 @@ MAX_GENERATED_EDGES = 5000       # beyond this the browser drawing gets sluggish
 SKIP_DIRS = frozenset({
     ".git", "venv", ".venv", "env", "node_modules", "build", "dist",
     "site-packages", "__pycache__", ".tox", "docs",
+    "docs_src",                  # documentation example scripts (FastAPI, Typer: hundreds of them)
 })
