@@ -12,6 +12,7 @@ from __future__ import annotations
 
 import os
 import re
+import signal
 import subprocess
 import tempfile
 import time
@@ -74,21 +75,53 @@ def _run_git(args: list[str], timeout: float, cwd: Path | None = None) -> str:
     # Credential Manager on Windows. core.longpaths avoids "Filename too long" on Windows.
     cmd = ["git", "-c", "credential.helper=", "-c", "core.longpaths=true", *args]
     try:
-        result = subprocess.run(
-            cmd, cwd=cwd, env=env, capture_output=True,
-            encoding="utf-8", errors="replace", timeout=timeout,
-        )
+        returncode, stdout, stderr = _run_command(cmd, timeout, cwd=cwd, env=env)
     except FileNotFoundError:
         raise GitError("git is not installed on the server") from None
     except subprocess.TimeoutExpired:
         raise GitTimeout(f"git took longer than {timeout:g}s") from None
 
-    if result.returncode != 0:
-        stderr = result.stderr.strip()
+    if returncode != 0:
+        stderr = stderr.strip()
         if any(hint in stderr.lower() for hint in _NOT_FOUND_HINTS):
             raise RepoNotFound("Repository not found, or it is private")
         raise GitError(f"git failed: {stderr[-300:]}")
-    return result.stdout
+    return stdout
+
+
+def _run_command(cmd: list[str], timeout: float, cwd: Path | None = None,
+                 env: dict[str, str] | None = None) -> tuple[int, str, str]:
+    """Run cmd and return (exit code, stdout, stderr); on timeout, kill it AND
+    every process it started, then raise subprocess.TimeoutExpired.
+
+    subprocess.run(timeout=...) only kills the process it started. git hands the
+    download to helpers (git-remote-https, index-pack) that keep our output pipes
+    open, so we kept waiting for them: one "56 s" timeout took 133 s.
+    On Linux the command starts in its own process group, which we kill as a
+    whole; on Windows, taskkill /T kills the process tree.
+    """
+    proc = subprocess.Popen(
+        cmd, cwd=cwd, env=env, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+        encoding="utf-8", errors="replace", start_new_session=(os.name == "posix"),
+    )
+    try:
+        stdout, stderr = proc.communicate(timeout=timeout)
+    except subprocess.TimeoutExpired:
+        _kill_process_tree(proc)
+        proc.communicate()            # returns at once now: nothing holds the pipes any more
+        raise
+    return proc.returncode, stdout, stderr
+
+
+def _kill_process_tree(proc: subprocess.Popen) -> None:
+    try:
+        if os.name == "posix":
+            os.killpg(proc.pid, signal.SIGKILL)   # the group start_new_session created
+        else:
+            subprocess.run(["taskkill", "/F", "/T", "/PID", str(proc.pid)], capture_output=True)
+    except ProcessLookupError:
+        pass                                      # already gone
+    proc.kill()                                   # make sure, if the above didn't reach it
 
 
 def get_head_sha(repo: RepoRef) -> str:

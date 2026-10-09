@@ -4,10 +4,12 @@ git repository instead of GitHub (the CI docker job clones a real one)."""
 
 import shutil
 import subprocess
+import sys
+import time
 
 import pytest
 
-from app.cloner import CHECKOUT_PATTERNS, RepoRef, parse_repo_url, sparse_clone
+from app.cloner import CHECKOUT_PATTERNS, RepoRef, _run_command, parse_repo_url, sparse_clone
 from app.errors import InvalidRepoURL
 
 
@@ -92,3 +94,20 @@ def test_checkout_patterns_cover_every_file_the_parser_reads():
     from app.parser import PROJECT_MARKERS
     assert "*.py" in CHECKOUT_PATTERNS
     assert {f"**/{name}" for name in PROJECT_MARKERS} <= set(CHECKOUT_PATTERNS)
+
+
+def test_timeout_also_stops_the_processes_the_command_started():
+    # Like git during a download: the command starts a helper that inherits its
+    # output pipe, then both hang. Killing only the command would leave us
+    # waiting ~30 s for the helper; the whole tree must go at the 1 s timeout.
+    helper = "import time; time.sleep(30)"
+    script = f"import subprocess, sys, time; subprocess.Popen([sys.executable, '-c', {helper!r}]); time.sleep(30)"
+    start = time.monotonic()
+    with pytest.raises(subprocess.TimeoutExpired):
+        _run_command([sys.executable, "-c", script], timeout=1)
+    assert time.monotonic() - start < 10
+
+
+def test_run_command_returns_output_and_exit_code():
+    code, out, err = _run_command([sys.executable, "-c", "import sys; print('hi'); sys.exit(3)"], timeout=30)
+    assert (code, out.strip()) == (3, "hi")
