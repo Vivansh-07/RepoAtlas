@@ -101,7 +101,7 @@ flowchart TB
     B["Browser<br/>vanilla JS · Cytoscape.js · Chart.js"] -->|"POST /api/analyze"| P
     B -->|"GET /api/generate"| GEN
     subgraph S["FastAPI backend"]
-        P["pipeline"] --> CL["cloner<br/>check URL · ls-remote · shallow clone"]
+        P["pipeline"] --> CL["cloner<br/>check URL · ls-remote · sparse clone"]
         CL --> PA["parser<br/>find .py · name modules · ast imports"]
         PA --> RE["resolver<br/>internal / stdlib / third-party"]
         RE --> GB["graph_builder<br/>NetworkX DiGraph"]
@@ -116,7 +116,7 @@ flowchart TB
 
 1. **Validate** the URL strictly, then ask GitHub for the latest commit with `git ls-remote`, without downloading anything.
 2. **Cache check** on (repo, commit, analysis version). A repeat request skips everything below: about 1.5 s instead of about 5 s. The latest commit is remembered for a minute, so a repeat visit within that minute takes about 0.02 s.
-3. **Shallow clone** into a temporary folder, deleted afterwards whatever happens.
+3. **Fetch only what we read:** a shallow *partial* clone plus a sparse checkout downloads just the `.py` files and project files (`pyproject.toml`, `setup.py`, `setup.cfg`) into a temporary folder, deleted afterwards whatever happens. Images, data and docs are never downloaded.
 4. **Parse** every `.py` file with Python's `ast`. The code is read as data and never run.
 5. **Resolve** each import: longest matching module, relative imports, the script-folder rule, stdlib versus third-party.
 6. **Build** a directed graph (A → B means "A imports B") and run the **analytics** on the repo's own runtime imports.
@@ -136,6 +136,9 @@ flowchart TB
 | Circle area ∝ importance (square-root sizing) | Viewers judge circles by area | Linear diameter (exaggerates the top module) |
 | Cache key = repo + commit + analysis version | A commit is an exact snapshot, so its analysis never changes; the version invalidates old results when the analysis logic changes | Time-based expiry (stale or wasteful) |
 | Git with credential helpers disabled | Private repos fail fast as 404 instead of hanging on a login prompt, and the server never uses saved credentials | Relying on the timeout |
+| Partial clone + sparse checkout (only `.py` and project files) | numpy went from a 60 s timeout to 12 s; FastAPI from 58 MB to 8 MB. The checked-out code is identical to a full clone. | A full shallow clone (downloads everything); fetching files one by one through the GitHub API (rate limits, thousands of requests) |
+| Timeouts kill git's whole process tree | `subprocess`'s timeout only kills git itself, and git's download helpers kept the request waiting: a 56 s limit once took 133 s | Trusting `subprocess.run(timeout=...)` |
+| Read the source folders a project declares (`pyproject.toml`, `setup.cfg`) | SQLAlchemy keeps its code in `lib/`; without this, 393 of its modules pointed at a fake third-party "sqlalchemy" | Guessing from folder names (`lib/` often holds helper scripts) |
 | At most 2 analyses at once, then 503 | A free instance has about 512 MB of RAM; cache hits bypass the limit | Unlimited (crashes under a burst) |
 | Remember each repo's latest commit for 60 s | The GitHub round trip was most of a cache hit (1.5 s → 0.02 s). A push shows up at most a minute late. | Asking GitHub on every request |
 | One lock per repository (64 locks shared by hash), with the cache checked again inside it | Two people opening the same new repository trigger one clone, not two. The second waits, then hits the cache. Memory stays fixed however many repos are seen. | One global lock (unrelated repos would queue); a lock per repo name (grows forever) |
@@ -169,11 +172,12 @@ Requires Python 3.11+ and `git` on your PATH. `requirements.txt` is the runtime 
 
 ## Testing and CI
 
-**160 tests** (pytest). They cover:
+**174 tests** (pytest). They cover:
 - URL validation, including injection attempts
-- path → module naming on real layouts (src/, nested projects, name clashes)
+- path → module naming on real layouts (src/, folders declared in `pyproject.toml`/`setup.cfg`, nested projects, name clashes)
 - every import-resolution rule, plus a fake repository with a known graph and one cycle
 - analytics, the package graph (grouping rules, a cycle between packages without any cycle between modules), the cache and the API (offline, with GitHub faked), including two simultaneous requests cloning only once
+- the sparse clone against a throwaway local git repository (only `.py` and project files arrive; git confirms the rest was never downloaded), and timeouts that stop git's helper processes
 
 Several Graph Lab tests check **graph theory** rather than shape: ring-lattice clustering = 3(k−2)/(4(k−1)), the small-world drop in path length, Barabási–Albert hubs versus Erdős–Rényi, and exact edge counts.
 
@@ -181,12 +185,22 @@ GitHub Actions runs two jobs on every push and pull request:
 - **pytest**
 - **docker:** builds the production image, starts it, and analyses a real repository *inside the container*
 
+**Tested on unfamiliar code.** Beyond the four repositories above, RepoAtlas was run on 16 more it had never seen: typer, FastAPI, black, Jinja, Werkzeug, Starlette, pytest, Pydantic, Scrapy, HTTPie, SQLAlchemy, numpy, Django, and three edge cases (no Python, a missing repository, a tiny sample project). That found and fixed four problems:
+- SQLAlchemy's declared `lib/` folder was not recognised
+- FastAPI's and Typer's `docs_src/` example scripts swamped the graph
+- numpy timed out while downloading files it never reads
+- git timeouts didn't stop git's helper processes
+
+Every fix left the four reference repositories' results unchanged. Django (over 2,000 Python files) gets a clear 413 message; FastAPI's 703 modules draw in about 4 s.
+
 ## Limitations
 
 - Python only; public GitHub repositories only; at most 2,000 Python files (files over 1 MB are kept as nodes but not parsed).
 - Static analysis: `importlib.import_module("…")` and other dynamic imports aren't seen; conditions aren't evaluated (an import inside `if sys.platform == "win32"` counts everywhere). `if TYPE_CHECKING:` imports are recognised.
 - Tests are included, so the modules tests import most (often the package `__init__`) rank high.
 - Imports that only work because code edits `sys.path` at runtime appear as external libraries.
+- Package folders declared only in `setup.py` aren't detected (it's code, and RepoAtlas never runs repository code); `pyproject.toml` and `setup.cfg` declarations are.
+- Big graphs are slower: the Force layout of a ~700-module repository takes a few seconds in the browser (the Rings and Hierarchy layouts stay instant).
 
 ## Future work
 
