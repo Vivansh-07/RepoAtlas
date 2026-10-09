@@ -7,9 +7,11 @@ so a malicious repo can't execute anything on our server.
 from __future__ import annotations
 
 import ast
+import configparser
 import keyword
 import logging
 import os
+import tomllib
 from collections.abc import Iterator
 from dataclasses import dataclass, field
 from pathlib import Path, PurePosixPath
@@ -84,9 +86,12 @@ def detect_source_roots(repo_dir: Path) -> list[Path]:
     """Folders that act like an entry on sys.path, deepest first.
 
     That's the repo root plus every nested project (a folder with a PROJECT_MARKERS
-    file that isn't itself a package), and the `src/` folder of any of them.
-    `src/` only counts when it has no __init__.py: some projects really do write
-    `from src.utils import x`, and then `src` is part of the module name.
+    file that isn't itself a package), and for each project:
+    - the folders its packaging config declares (see declared_package_dirs), e.g.
+      SQLAlchemy's `lib/`;
+    - its `src/` folder, the common convention, when it has no __init__.py: some
+      projects really do write `from src.utils import x`, and then `src` is part
+      of the module name.
     """
     projects = [repo_dir] + [
         folder for folder, filenames in _walk(repo_dir)
@@ -94,13 +99,63 @@ def detect_source_roots(repo_dir: Path) -> list[Path]:
         and PROJECT_MARKERS.intersection(filenames)
         and "__init__.py" not in filenames
     ]
-    roots: list[Path] = []
+    roots: set[Path] = set()
     for project in projects:
-        roots.append(project)
+        roots.add(project)
+        roots.update(declared_package_dirs(project, repo_dir))
         src = project / "src"
         if src.is_dir() and not (src / "__init__.py").exists():
-            roots.append(src)
-    return sorted(roots, key=lambda p: len(p.parts), reverse=True)
+            roots.add(src)
+    return sorted(roots, key=lambda p: (-len(p.parts), str(p)))
+
+
+def declared_package_dirs(project: Path, repo_dir: Path) -> list[Path]:
+    """The folders a project's setuptools config says its packages live in.
+
+    pyproject.toml:  [tool.setuptools.packages.find] where = ["lib"]
+                     [tool.setuptools] package-dir = {"" = "lib"}
+    setup.cfg:       [options] package_dir = =lib
+    (setup.py is code, so it isn't read: we never run or guess at repo code.)
+    A broken config is ignored, and so is a folder outside the repository.
+    """
+    declared: list[str] = []
+    try:
+        setuptools = tomllib.loads(_read_config(project / "pyproject.toml")).get("tool", {}).get("setuptools", {})
+        where = setuptools.get("packages", {}).get("find", {}).get("where", [])
+        declared += [w for w in where if isinstance(w, str)]
+        package_dir = setuptools.get("package-dir", {})
+        if isinstance(package_dir.get(""), str):
+            declared.append(package_dir[""])
+    except (tomllib.TOMLDecodeError, AttributeError, TypeError):
+        pass
+    try:
+        cfg = configparser.ConfigParser()
+        cfg.read_string(_read_config(project / "setup.cfg"))
+        # "=lib" maps the root package ("") to lib/; other lines map single packages.
+        for line in cfg.get("options", "package_dir", fallback="").splitlines():
+            name, _, folder = line.partition("=")
+            if not name.strip() and folder.strip():
+                declared.append(folder.strip())
+    except configparser.Error:
+        pass
+
+    folders = []
+    for rel in declared:
+        folder = (project / rel).resolve()
+        if folder.is_dir() and folder.is_relative_to(repo_dir.resolve()):
+            # Rebuilt from the repo root, so "lib/../lib" or "." match the folders the walk finds.
+            folders.append(repo_dir / folder.relative_to(repo_dir.resolve()))
+    return folders
+
+
+def _read_config(path: Path) -> str:
+    """A small text config file, or "" if it's missing, too big or not text."""
+    try:
+        if path.is_file() and not path.is_symlink() and path.stat().st_size <= config.MAX_FILE_BYTES:
+            return path.read_text(encoding="utf-8")
+    except (OSError, UnicodeDecodeError):
+        pass
+    return ""
 
 
 def path_to_module(rel_path: PurePosixPath) -> tuple[str, bool] | None:
