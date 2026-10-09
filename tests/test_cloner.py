@@ -1,10 +1,13 @@
 """URL validation is the security boundary for everything that follows, so it gets
-its own tests. These run offline; the network parts are checked manually via
-`python -m app.cloner <url>`."""
+its own tests. Everything here runs offline: the clone test uses a throwaway local
+git repository instead of GitHub (the CI docker job clones a real one)."""
+
+import shutil
+import subprocess
 
 import pytest
 
-from app.cloner import RepoRef, parse_repo_url
+from app.cloner import CHECKOUT_PATTERNS, RepoRef, parse_repo_url, sparse_clone
 from app.errors import InvalidRepoURL
 
 
@@ -48,3 +51,44 @@ def test_clone_url_is_rebuilt_from_parts():
     # We never pass the user's raw string to git, only this rebuilt URL.
     assert parse_repo_url("https://github.com/Pallets/Flask/").clone_url == \
         "https://github.com/pallets/flask.git"
+
+
+# --- fetching only the files we read ----------------------------------------
+
+def git(*args, cwd):
+    subprocess.run(["git", "-c", "user.name=t", "-c", "user.email=t@t", *args], cwd=cwd,
+                   check=True, capture_output=True)
+
+
+@pytest.mark.skipif(shutil.which("git") is None, reason="needs git")
+def test_sparse_clone_fetches_only_python_and_project_files(tmp_path):
+    source = tmp_path / "source"
+    files = {
+        "pkg/__init__.py": "", "pkg/core.py": "import os\n",
+        "examples/demo/pyproject.toml": "", "setup.cfg": "",
+        "README.md": "# hi\n", "docs/logo.png": "not really a png", "data/big.csv": "1,2,3\n" * 1000,
+    }
+    for rel, text in files.items():
+        (source / rel).parent.mkdir(parents=True, exist_ok=True)
+        (source / rel).write_text(text)
+    git("init", "-q", cwd=source)
+    git("add", ".", cwd=source)
+    git("commit", "-q", "-m", "files", cwd=source)
+    git("config", "uploadpack.allowFilter", "true", cwd=source)   # GitHub allows partial clones; a local repo must opt in
+
+    dest = tmp_path / "dest"
+    sparse_clone(source.as_uri(), dest)
+
+    checked_out = {p.relative_to(dest).as_posix() for p in dest.rglob("*") if p.is_file() and ".git" not in p.parts}
+    assert checked_out == {"pkg/__init__.py", "pkg/core.py", "examples/demo/pyproject.toml", "setup.cfg"}
+    # Not just hidden: the other files' contents were never downloaded. Git lists
+    # them as "missing" objects (lines starting with "?") in the partial clone.
+    out = subprocess.run(["git", "rev-list", "--objects", "--missing=print", "HEAD"], cwd=dest,
+                         capture_output=True, text=True, check=True).stdout
+    assert sum(line.startswith("?") for line in out.splitlines()) == 3      # README, logo, CSV
+
+
+def test_checkout_patterns_cover_every_file_the_parser_reads():
+    from app.parser import PROJECT_MARKERS
+    assert "*.py" in CHECKOUT_PATTERNS
+    assert {f"**/{name}" for name in PROJECT_MARKERS} <= set(CHECKOUT_PATTERNS)
