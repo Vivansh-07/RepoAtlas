@@ -82,15 +82,16 @@ It's for developers joining an unfamiliar codebase, tech leads planning a refact
 
 | Repository (commit) | Modules | Imports | Communities (modularity) | Cycle groups | Depth | Most important |
 |---|---|---|---|---|---|---|
-| pallets/flask (`d73fa1c`) | 82 | 162 (+24 type-only) | 8 (0.37) | 11, 2 | 9 | `flask`, `flask.globals` |
+| pallets/flask (`d086db8`) | 82 | 162 (+24 type-only) | 8 (0.37) | 11, 2 | 9 | `flask`, `flask.globals` |
 | psf/requests (`611c616`) | 35 | 94 (+12) | 6 (0.21) | none | 10 | `requests.compat` |
 | pallets/click (`2247b35`) | 90 | 163 (+5) | 4 (0.30) | 7, 2, 2 | 6 | `click._compat` |
 | encode/httpx (`b5addb6`) | 60 | 116 (+6) | 4 (0.37) | 2 | 11 | `httpx`, `httpx._types` |
 
 A few things these maps reveal:
 - **Flask's core is one 11-module loop.** `app`, `blueprints`, `cli`, `templating`, `wrappers` and the package itself all reach each other. It still works at runtime because Flask defers some imports into functions.
-- **The biggest file isn't the most important.** `flask.app` has 1,238 lines but ranks #27: five of its six importers use it only for type hints.
+- **The biggest file isn't the most important.** `flask.app` has 1,235 lines but ranks #27: five of its six importers use it only for type hints.
 - **A legacy shim became load-bearing.** requests' #1 module is `requests.compat`, a Python 2/3 compatibility layer still imported by 14 modules.
+- **A loop can be enormous.** In numpy (`6f39388`), 111 of its 456 modules form a single circular-dependency group.
 - **Some cycles only exist on one platform.** click's `_compat ↔ _winconsole` loop only runs on Windows (`if sys.platform.startswith("win")`).
 - **Loops between packages.** At package level, Flask's 20 packages keep one loop: `flask` ↔ `flask.json` ↔ `flask.sansio`. httpx's 5 packages keep one too: `httpx` ↔ `httpx._transports`. Packages in a loop can't be split out or understood on their own. requests and click have none.
 
