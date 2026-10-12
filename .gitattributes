@@ -1,2 +1,5 @@
 # Store text files with LF line endings in the repo (deploy target is Linux)
 * text=auto eol=lf
+
+# Windows batch files need CRLF: cmd.exe can misread LF-only scripts
+*.bat text eol=crlf

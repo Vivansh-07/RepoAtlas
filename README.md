@@ -166,6 +166,8 @@ pytest -q                        # run the tests
 
 Requires Python 3.11+ and `git` on your PATH. `requirements.txt` is the runtime set; `requirements-dev.txt` adds the test tools.
 
+**On Windows**, after the one-time setup above you can double-click `scripts\start-windows.bat`. It starts the server and opens the browser; close its window to stop the server. `scripts\run-tests.bat` runs the test suite.
+
 **Docker:** `docker build -t repoatlas . && docker run -p 8000:8000 repoatlas`. The image is `python:3.13-slim` plus `git`, running as a non-root user.
 
 **Deploy:** `render.yaml` is a Render Blueprint (a free Docker web service with a health check and auto-deploy on push). Use the button above, or Render → New → Blueprint. The live demo above is deployed exactly this way, and redeploys on every merge to `main`.
