@@ -10,6 +10,11 @@ if not exist ".venv\Scripts\python.exe" (
   pause
   exit /b 1
 )
+rem Keep temporary files (downloaded repositories, test folders) next to the project,
+rem not in the system temp folder.
+if not exist "data\tmp" mkdir "data\tmp"
+set "TEMP=%CD%\data\tmp"
+set "TMP=%CD%\data\tmp"
 echo.
 echo  Starting RepoAtlas on http://127.0.0.1:8000
 echo  Keep this window open. Close it, or press Ctrl+C, to stop the server.
