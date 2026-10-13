@@ -2,7 +2,7 @@
 
 This document maps the graph-visualization ideas behind RepoAtlas to where they appear in the tool, why each design choice was made, and what it revealed on real repositories. It doubles as notes for a course report (Graph Visualization, DSE3151).
 
-Measured numbers come from RepoAtlas runs on pallets/flask (`d73fa1c`), psf/requests (`611c616`), pallets/click (`2247b35`) and encode/httpx (`b5addb6`).
+Measured numbers come from RepoAtlas runs on pallets/flask (`d086db8`), psf/requests (`611c616`), pallets/click (`2247b35`) and encode/httpx (`b5addb6`).
 
 ---
 
@@ -110,7 +110,7 @@ PageRank (Page et al. 1999) models a random walker who follows edges and occasio
 **Critical observations** (useful for evaluating the visualization):
 - **Cycles inflate PageRank.** `click._winconsole` ranks #2 with a single importer, because rank keeps circulating inside its 2-module cycle with #1 (`click._compat`).
 - **Tests skew the ranking** towards the package `__init__` they import.
-- **Type-only imports are excluded.** `flask.app` (1,238 lines, the largest file) ranks only #27, because five of its six importers use it only for type hints.
+- **Type-only imports are excluded.** `flask.app` (1,235 lines, the largest file) ranks only #27, because five of its six importers use it only for type hints.
 
 ---
 
@@ -138,6 +138,7 @@ Collapsing each SCC into one node gives the **condensation**, which is always a 
 **Observed:**
 - Flask's core is one 11-module SCC, kept working at runtime by imports deferred into functions.
 - click has a 7-module core SCC.
+- numpy (`6f39388`) has a single SCC of 111 modules, out of 456.
 - requests has none.
 
 **A key finding.** Counting `if TYPE_CHECKING:` imports as normal edges inflated the cycles dramatically: Flask [20, 2] → [11, 2], requests [8] → none, httpx [11, 6] → [2]. Type-only imports never run, so they can't create a circular-import problem. They are therefore drawn dashed and excluded from all analytics.
